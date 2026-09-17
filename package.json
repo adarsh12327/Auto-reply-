@@ -1,0 +1,1 @@
+{"name":"telegram-account-manager","version":"1.0.0","private":true,"type":"module","main":"src/index.js","scripts":{"start":"node src/index.js","dev":"node --watch src/index.js"},"engines":{"node":">=20"},"dependencies":{"dotenv":"^16.4.7","gramjs":"^2.26.21","mongoose":"^8.9.5","telegraf":"^4.16.3"}}
