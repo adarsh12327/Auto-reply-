@@ -550,7 +550,7 @@ bot.on('text', async (ctx) => {
       userId,
       error: safeError(error)
     });
-    await ctx.reply(`❌ ${error.message || 'Something went wrong.'`);
+    await ctx.reply(`❌ ${error.message || 'Something went wrong.'}`);
   }
 });
 
