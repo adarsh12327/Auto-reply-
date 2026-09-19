@@ -1,83 +1,560 @@
 import { Telegraf, Markup } from 'telegraf';
-import { User, Account, setting } from './db.js';
-import { beginLogin, submitCode, submitPassword, cancelLogin, setAutoReply, removeAccount, getPending } from './userClient.js';
+import { Account, User, getSetting, incrementReferral, setSetting } from './db.js';
+import {
+  beginLogin,
+  cancelLogin,
+  getPending,
+  removeAccount,
+  setAutoReply,
+  submitCode,
+  submitPassword
+} from './userClient.js';
+import { logger, safeError } from './logger.js';
 
-const bot=new Telegraf(process.env.BOT_TOKEN);
-const state=new Map();
-const support=process.env.SUPPORT_URL||'https://t.me/';
+const bot = new Telegraf(process.env.BOT_TOKEN);
+const state = new Map();
+const supportUrl = process.env.SUPPORT_URL?.trim() || '';
+const adminIds = new Set(
+  (process.env.ADMIN_IDS || '').split(',').map((id) => id.trim()).filter(Boolean)
+);
 
-const menu=()=>Markup.inlineKeyboard([
- [Markup.button.callback('📨 Start Campaign','campaign'),Markup.button.callback('📢 Channel Promo','promo')],
- [Markup.button.callback('💬 Set Auto Reply','autoreply'),Markup.button.callback('📊 Ads Logs','adslogs')],
- [Markup.button.callback('📝 Set Message','setmsg'),Markup.button.callback('👁 Preview Message','preview')],
- [Markup.button.callback('📈 My Stats','stats'),Markup.button.callback('👤 My Account','account')],
- [Markup.button.callback('⭐ VIP Premium','vip'),Markup.button.callback('🎟 Redeem Code','redeem')],
- [Markup.button.callback('➕ Add Account','add'),Markup.button.callback('➖ Remove Account','remove')],
- [Markup.button.callback('🔗 Refer & Earn','refer')],
- [Markup.button.callback('📖 How to Use','help'),Markup.button.url('🆘 Support',support)],
- [Markup.button.url('↗ Create Your Own Bot','https://t.me/BotFather')]
-]);
+function idOf(ctx) { return String(ctx.from?.id || ''); }
+function isAdmin(ctx) { return adminIds.has(idOf(ctx)); }
 
-async function ensureUser(ctx,ref){
- const id=String(ctx.from.id); let u=await User.findOne({telegramId:id});
- if(!u){u=new User({telegramId:id,username:ctx.from.username,firstName:ctx.from.first_name});
-  if(ref&&ref!==id){const r=await User.findOne({telegramId:ref});if(r){u.referrerId=ref;r.referrals+=1;await r.save();}}
-  await u.save();
- } return u;
+function setState(userId, value) {
+  state.set(String(userId), {
+    ...value,
+    expiresAt: Date.now() + 10 * 60_000
+  });
 }
-async function home(ctx){return ctx.reply('🏠 *Main Menu*\n\nManage your connected Telegram account, one-time DM auto replies, opt-in campaigns and referrals.',{parse_mode:'Markdown',...menu()});}
-function setAction(id,action,data={}){state.set(String(id),{action,...data});}
 
-bot.start(async ctx=>{const p=ctx.startPayload||'';await ensureUser(ctx,p.startsWith('ref_')?p.slice(4):null);await home(ctx);});
-bot.command('menu',home);
-bot.command('subscribe',async ctx=>{await ensureUser(ctx);await User.updateOne({telegramId:String(ctx.from.id)},{$set:{subscribed:true}});ctx.reply('✅ Campaign subscription enabled.');});
-bot.command('unsubscribe',async ctx=>{await User.updateOne({telegramId:String(ctx.from.id)},{$set:{subscribed:false}});ctx.reply('✅ Campaign subscription disabled.');});
+function getState(userId) {
+  const value = state.get(String(userId));
+  if (!value) return null;
 
-bot.action('cancel',async ctx=>{state.delete(String(ctx.from.id));await cancelLogin(ctx.from.id);await ctx.answerCbQuery();await ctx.reply('❌ Cancelled.');});
-bot.action('help',async ctx=>{await ctx.answerCbQuery();await ctx.reply('📖 *How to use*\n\n1. Add Account and complete Telegram login.\n2. Set Auto Reply and enable it.\n3. Each incoming private sender gets the reply only once.\n4. Campaigns are restricted to users who explicitly subscribed with /subscribe.',{parse_mode:'Markdown',...menu()});});
-bot.action('add',async ctx=>{await ctx.answerCbQuery();setAction(ctx.from.id,'phone');await ctx.reply('📱 Send your own Telegram phone number in international format, e.g. +919876543210.');});
-
-bot.action('autoreply',async ctx=>{await ctx.answerCbQuery();const a=await Account.findOne({ownerId:String(ctx.from.id)});if(!a)return ctx.reply('❌ Add an account first.');await ctx.reply(`💬 *Auto Reply*\n\nStatus: ${a.autoReply?'ON':'OFF'}\nText: ${a.replyText||'(not set)'}`,{parse_mode:'Markdown',...Markup.inlineKeyboard([[Markup.button.callback('✏️ Set Text','replytext'),Markup.button.callback(a.autoReply?'⏹ Disable':'▶️ Enable','toggleReply')],[Markup.button.callback('🗑 Delete','delreply'),Markup.button.callback('⬅️ Back','back')]])});});
-bot.action('replytext',async ctx=>{await ctx.answerCbQuery();setAction(ctx.from.id,'replytext');await ctx.reply('✉️ Send the exact auto-reply text. It will be sent only once to each private sender.');});
-bot.action('toggleReply',async ctx=>{const a=await Account.findOne({ownerId:String(ctx.from.id)});if(!a)return ctx.reply('❌ No account.');if(!a.replyText)return ctx.reply('❌ Set reply text first.');await setAutoReply(a._id,!a.autoReply);await ctx.answerCbQuery();await ctx.reply(`✅ Auto Reply ${!a.autoReply?'enabled':'disabled'}.`);});
-bot.action('delreply',async ctx=>{const a=await Account.findOne({ownerId:String(ctx.from.id)});if(a)await setAutoReply(a._id,false,'');await ctx.answerCbQuery('Deleted');await ctx.reply('🗑 Auto reply deleted.');});
-
-bot.action('account',async ctx=>{const a=await Account.find({ownerId:String(ctx.from.id)}).lean();await ctx.answerCbQuery();if(!a.length)return ctx.reply('👤 No connected account.');await ctx.reply('👤 *Connected Accounts*\n\n'+a.map((x,i)=>`${i+1}. ${x.phone} — Auto Reply: ${x.autoReply?'ON':'OFF'}`).join('\n'),{parse_mode:'Markdown',...menu()});});
-bot.action('remove',async ctx=>{const a=await Account.find({ownerId:String(ctx.from.id)});if(!a.length)return ctx.reply('No account to remove.');for(const x of a)await removeAccount(x._id);await ctx.answerCbQuery();await ctx.reply('✅ Connected account(s) removed.');});
-bot.action('stats',async ctx=>{const u=await User.findOne({telegramId:String(ctx.from.id)});const accounts=await Account.countDocuments({ownerId:String(ctx.from.id)});await ctx.answerCbQuery();await ctx.reply(`📈 *My Stats*\n\n👥 Referrals: ${u?.referrals||0}\n💰 Referral earned: ₹${u?.referralEarned||0}\n📱 Accounts: ${accounts}`,{parse_mode:'Markdown',...menu()});});
-bot.action('refer',async ctx=>{const u=await User.findOne({telegramId:String(ctx.from.id)});const pct=await setting('referral_percent',10);const username=process.env.BOT_USERNAME||ctx.botInfo?.username||'YourBot';await ctx.answerCbQuery();await ctx.reply(`🔗 *Refer & Earn*\n\nhttps://t.me/${username}?start=ref_${u.telegramId}\n\nCommission: ${pct}%\nReferrals: ${u.referrals}\nEarned: ₹${u.referralEarned}`,{parse_mode:'Markdown',...menu()});});
-bot.action('vip',async ctx=>{await ctx.answerCbQuery();await ctx.reply('⭐ VIP Premium\n\nPremium plans are intentionally configurable instead of hard-coded.');});
-bot.action('redeem',async ctx=>{await ctx.answerCbQuery();setAction(ctx.from.id,'redeem');await ctx.reply('🎟 Send your redeem code.');});
-bot.action('promo',async ctx=>{await ctx.answerCbQuery();await ctx.reply('📢 *Channel Promo Builder*\n\nSend a channel username or invite link. This build formats promo text but does not send unsolicited bulk promotions.',{parse_mode:'Markdown'});});
-bot.action('setmsg',async ctx=>{await ctx.answerCbQuery();setAction(ctx.from.id,'setmsg');await ctx.reply('📝 Send the campaign message.');});
-bot.action('preview',async ctx=>{const s=state.get(String(ctx.from.id));await ctx.answerCbQuery();await ctx.reply(`👁 *Preview*\n\n${s?.campaignMessage||'No campaign message saved in the current session.'}`,{parse_mode:'Markdown'});});
-bot.action('adslogs',async ctx=>{await ctx.answerCbQuery();await ctx.reply('📊 Ads logs are a placeholder. Connect a compliant ad provider before monetizing.');});
-bot.action('back',async ctx=>{await ctx.answerCbQuery();await home(ctx);});
-bot.action('campaign',async ctx=>{const u=await User.findOne({telegramId:String(ctx.from.id)});await ctx.answerCbQuery();if(!u?.subscribed)return ctx.reply('📨 First use /subscribe to opt into campaigns.');setAction(ctx.from.id,'campaign');await ctx.reply('📨 Send the campaign message. Delivery to non-consenting users is disabled.');});
-
-bot.on('text',async ctx=>{
- const id=String(ctx.from.id),s=state.get(id);if(!s)return;
- try{
-  if(s.action==='phone'){
-   const st=await beginLogin(id,ctx.message.text.trim());setAction(id,'code');
-   await ctx.reply('📨 Login started. Send the OTP code received from Telegram.');
-   st.promise.then(()=>ctx.reply('✅ Telegram account connected successfully.')).catch(e=>ctx.reply(`❌ Login failed: ${e.message}`));return;
+  if (value.expiresAt < Date.now()) {
+    state.delete(String(userId));
+    return null;
   }
-  if(s.action==='code'){
-   const st=await submitCode(id,ctx.message.text.trim());setAction(id,'password_wait');
-   await new Promise(r=>setTimeout(r,1000));
-   const p=getPending(id);if(p?.password){return ctx.reply('🔐 2-step verification is enabled. Send the 2FA password.');}
-   return ctx.reply('⏳ Completing login. Please wait for the success message.');
+
+  return value;
+}
+
+function clearState(userId) {
+  state.delete(String(userId));
+}
+
+function mainMenu(ctx) {
+  const rows = [
+    [
+      Markup.button.callback('💬 Auto Reply', 'autoreply'),
+      Markup.button.callback('👤 Accounts', 'account')
+    ],
+    [
+      Markup.button.callback('📈 My Stats', 'stats'),
+      Markup.button.callback('🔗 Refer & Earn', 'refer')
+    ],
+    [
+      Markup.button.callback('📢 Channel Promo', 'promo'),
+      Markup.button.callback('⭐ VIP Premium', 'vip')
+    ],
+    [
+      Markup.button.callback('🎟 Redeem Code', 'redeem'),
+      Markup.button.callback('➕ Add Account', 'add')
+    ],
+    [
+      Markup.button.callback('➖ Remove Account', 'remove'),
+      Markup.button.callback('📖 How to Use', 'help')
+    ]
+  ];
+
+  if (isAdmin(ctx)) {
+    rows.push([
+      Markup.button.callback('📣 Opt-in Broadcast', 'broadcast'),
+      Markup.button.callback('⚙️ Admin', 'admin')
+    ]);
   }
-  if(s.action==='password_wait'){
-   const p=getPending(id);if(!p?.password)return ctx.reply('⏳ Login is already finishing.');
-   await submitPassword(id,ctx.message.text);state.delete(id);return ctx.reply('⏳ Completing login.');
+
+  if (supportUrl) rows.push([Markup.button.url('🆘 Support', supportUrl)]);
+  rows.push([Markup.button.url('↗ BotFather', 'https://t.me/BotFather')]);
+
+  return Markup.inlineKeyboard(rows);
+}
+
+async function ensureUser(ctx, referrerId = '') {
+  const telegramId = idOf(ctx);
+  if (!telegramId) throw new Error('Telegram user ID is missing.');
+
+  let user = await User.findOne({ telegramId });
+
+  if (!user) {
+    const cleanReferrer =
+      referrerId && referrerId !== telegramId ? String(referrerId) : '';
+
+    try {
+      user = await User.create({
+        telegramId,
+        username: ctx.from.username || '',
+        firstName: ctx.from.first_name || '',
+        referrerId: cleanReferrer
+      });
+
+      if (cleanReferrer) await incrementReferral(cleanReferrer);
+    } catch (error) {
+      if (error?.code !== 11000) throw error;
+      user = await User.findOne({ telegramId });
+    }
   }
-  if(s.action==='replytext'){const a=await Account.findOne({ownerId:id});if(!a)return ctx.reply('❌ No account.');await setAutoReply(a._id,a.autoReply,ctx.message.text);state.delete(id);return ctx.reply('✅ Auto Reply text saved.');}
-  if(s.action==='setmsg'||s.action==='campaign'){state.set(id,{action:s.action,campaignMessage:ctx.message.text});return ctx.reply('✅ Campaign message saved for this session.');}
-  if(s.action==='redeem'){state.delete(id);return ctx.reply('🎟 Code received. Redeem-code storage can be added by the admin.');}
- }catch(e){state.delete(id);await ctx.reply(`❌ ${e.message}`);}
+
+  await User.updateOne(
+    { telegramId },
+    {
+      $set: {
+        username: ctx.from.username || '',
+        firstName: ctx.from.first_name || '',
+        lastSeenAt: new Date(),
+        blocked: false
+      }
+    }
+  );
+
+  return user;
+}
+
+async function home(ctx) {
+  await ensureUser(ctx);
+  return ctx.reply(
+    '🏠 Main Menu\n\nManage your connected Telegram accounts, one-time private-DM auto replies, opt-in notifications and referrals.',
+    mainMenu(ctx)
+  );
+}
+
+async function answer(ctx) {
+  try { await ctx.answerCbQuery(); } catch {}
+}
+
+async function showAutoReply(ctx) {
+  const account = await Account.findOne({
+    ownerId: idOf(ctx)
+  }).sort({ connectedAt: -1 }).lean();
+
+  if (!account) return ctx.reply('❌ Add a Telegram account first.');
+
+  return ctx.reply(
+    `💬 Auto Reply\n\nAccount: ${account.phone}\nStatus: ${account.autoReply ? 'ON' : 'OFF'}\n\nReply: ${account.replyText || '(not configured)'}`,
+    Markup.inlineKeyboard([
+      [
+        Markup.button.callback('✏️ Set Text', 'replytext'),
+        Markup.button.callback(
+          account.autoReply ? '⏹ Disable' : '▶️ Enable',
+          'toggleReply'
+        )
+      ],
+      [
+        Markup.button.callback('🗑 Delete Reply', 'delreply'),
+        Markup.button.callback('⬅️ Main Menu', 'back')
+      ]
+    ])
+  );
+}
+
+async function runBroadcast(message) {
+  const delay = Math.max(35, Number(process.env.BROADCAST_DELAY_MS || 40));
+  const users = User.find({
+    subscribed: true,
+    blocked: false
+  }).select('telegramId').lean().cursor();
+
+  let sent = 0;
+  let failed = 0;
+
+  for await (const user of users) {
+    try {
+      await bot.telegram.sendMessage(user.telegramId, message);
+      sent += 1;
+    } catch (error) {
+      failed += 1;
+
+      const code = error?.response?.error_code;
+      const blocked = code === 403 || /blocked|chat not found/i.test(error?.message || '');
+
+      if (blocked) {
+        await User.updateOne(
+          { telegramId: user.telegramId },
+          { $set: { blocked: true, subscribed: false } }
+        );
+      }
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
+
+  return { sent, failed };
+}
+
+bot.catch((error, ctx) => {
+  logger.error('Unhandled bot error', {
+    updateId: ctx?.update?.update_id,
+    error: safeError(error)
+  });
 });
 
-export async function launchBot(){await bot.launch();console.log('Bot started');}
-export {bot};
+bot.start(async (ctx) => {
+  const payload = ctx.startPayload || '';
+  const referrer = payload.startsWith('ref_') ? payload.slice(4) : '';
+  await ensureUser(ctx, referrer);
+  await home(ctx);
+});
+
+bot.command('menu', home);
+
+bot.command('subscribe', async (ctx) => {
+  await ensureUser(ctx);
+  await User.updateOne(
+    { telegramId: idOf(ctx) },
+    { $set: { subscribed: true, blocked: false } }
+  );
+  await ctx.reply('✅ Opt-in notifications enabled. Use /unsubscribe any time to stop them.');
+});
+
+bot.command('unsubscribe', async (ctx) => {
+  await User.updateOne(
+    { telegramId: idOf(ctx) },
+    { $set: { subscribed: false } }
+  );
+  await ctx.reply('✅ Opt-in notifications disabled.');
+});
+
+bot.command('cancel', async (ctx) => {
+  await cancelLogin(idOf(ctx));
+  clearState(idOf(ctx));
+  await ctx.reply('❌ Current operation cancelled.');
+});
+
+bot.action('back', async (ctx) => {
+  await answer(ctx);
+  await home(ctx);
+});
+
+bot.action('help', async (ctx) => {
+  await answer(ctx);
+  await ctx.reply(
+    '📖 How to Use\n\n' +
+    '1. Add your own Telegram account.\n' +
+    '2. Complete OTP and optional 2-step verification.\n' +
+    '3. Configure Auto Reply.\n' +
+    '4. Each private sender receives the configured reply at most once per connected account.\n' +
+    '5. Use /subscribe only if you want opt-in broadcasts.\n' +
+    '6. Use /unsubscribe to stop them.'
+  );
+});
+
+bot.action('add', async (ctx) => {
+  await answer(ctx);
+  setState(ctx.from.id, { action: 'phone' });
+  await ctx.reply(
+    '📱 Send your own Telegram phone number in international format.\n\n' +
+    'Example: +919876543210\n\n/cancel to stop.'
+  );
+});
+
+bot.action('autoreply', async (ctx) => {
+  await answer(ctx);
+  await showAutoReply(ctx);
+});
+
+bot.action('replytext', async (ctx) => {
+  await answer(ctx);
+  setState(ctx.from.id, { action: 'replytext' });
+  await ctx.reply(
+    '✉️ Send the exact auto-reply text. Maximum 4096 characters.\n\n' +
+    'It will be sent only once per private sender.'
+  );
+});
+
+bot.action('toggleReply', async (ctx) => {
+  await answer(ctx);
+
+  const account = await Account.findOne({
+    ownerId: idOf(ctx)
+  }).sort({ connectedAt: -1 });
+
+  if (!account) return ctx.reply('❌ No connected account.');
+  if (!account.replyText) return ctx.reply('❌ Set the reply text first.');
+
+  const enabled = !account.autoReply;
+  await setAutoReply(account._id, enabled);
+  await ctx.reply(`✅ Auto Reply ${enabled ? 'enabled' : 'disabled'}.`);
+});
+
+bot.action('delreply', async (ctx) => {
+  await answer(ctx);
+
+  const account = await Account.findOne({
+    ownerId: idOf(ctx)
+  }).sort({ connectedAt: -1 });
+
+  if (!account) return ctx.reply('❌ No connected account.');
+
+  await setAutoReply(account._id, false, '');
+  await ctx.reply('🗑 Auto Reply deleted and disabled.');
+});
+
+bot.action('account', async (ctx) => {
+  await answer(ctx);
+
+  const accounts = await Account.find({
+    ownerId: idOf(ctx)
+  }).sort({ connectedAt: -1 }).lean();
+
+  if (!accounts.length) return ctx.reply('👤 No connected accounts yet.');
+
+  const text = accounts.map((account, index) =>
+    `${index + 1}. ${account.phone}\n   Status: ${account.status} | Auto Reply: ${account.autoReply ? 'ON' : 'OFF'}`
+  ).join('\n\n');
+
+  await ctx.reply(`👤 Connected Accounts\n\n${text}`, mainMenu(ctx));
+});
+
+bot.action('remove', async (ctx) => {
+  await answer(ctx);
+
+  const accounts = await Account.find({
+    ownerId: idOf(ctx)
+  }).sort({ connectedAt: -1 }).lean();
+
+  if (!accounts.length) return ctx.reply('No connected accounts to remove.');
+
+  const buttons = accounts.map((account) => [
+    Markup.button.callback(`🗑 ${account.phone}`, `remove:${account._id}`)
+  ]);
+
+  buttons.push([Markup.button.callback('⬅️ Back', 'back')]);
+  await ctx.reply('Select the account to remove:', Markup.inlineKeyboard(buttons));
+});
+
+bot.action(/^remove:(.+)$/, async (ctx) => {
+  await answer(ctx);
+
+  const account = await Account.findOne({
+    _id: ctx.match[1],
+    ownerId: idOf(ctx)
+  });
+
+  if (!account) return ctx.reply('❌ Account not found.');
+
+  await removeAccount(account._id);
+  await ctx.reply('✅ Account removed. Stored session and reply history were removed.');
+});
+
+bot.action('stats', async (ctx) => {
+  await answer(ctx);
+
+  const user = await User.findOne({
+    telegramId: idOf(ctx)
+  }).lean();
+
+  const accounts = await Account.countDocuments({
+    ownerId: idOf(ctx)
+  });
+
+  await ctx.reply(
+    `📈 My Stats\n\n👥 Referrals: ${user?.referrals || 0}\n📱 Connected accounts: ${accounts}\n🔔 Opt-in status: ${user?.subscribed ? 'ON' : 'OFF'}`,
+    mainMenu(ctx)
+  );
+});
+
+bot.action('refer', async (ctx) => {
+  await answer(ctx);
+
+  const user = await User.findOne({
+    telegramId: idOf(ctx)
+  });
+
+  if (!user) return ctx.reply('❌ User profile not found. Use /start first.');
+
+  const percent = await getSetting('referral_percent', 10);
+  const username =
+    process.env.BOT_USERNAME?.replace(/^@/, '') ||
+    ctx.botInfo?.username ||
+    '';
+
+  if (!username) return ctx.reply('❌ BOT_USERNAME is not configured.');
+
+  await ctx.reply(
+    `🔗 Refer & Earn\n\nYour referral link:\nhttps://t.me/${username}?start=ref_${user.telegramId}\n\nReferral rate: ${percent}%\nReferrals: ${user.referrals}\n\nThe rate is a configuration value; monetary credit is recorded only when a real qualifying event is implemented.`,
+    mainMenu(ctx)
+  );
+});
+
+bot.action('promo', async (ctx) => {
+  await answer(ctx);
+  setState(ctx.from.id, { action: 'promo' });
+  await ctx.reply(
+    '📢 Send the channel username or invite link you want to format. ' +
+    'This tool does not perform unsolicited bulk promotion.'
+  );
+});
+
+bot.action('vip', async (ctx) => {
+  await answer(ctx);
+  await ctx.reply(
+    '⭐ VIP Premium\n\nPremium entitlement is reserved for a real billing integration. ' +
+    'This build does not create fake payment or premium state.'
+  );
+});
+
+bot.action('redeem', async (ctx) => {
+  await answer(ctx);
+  setState(ctx.from.id, { action: 'redeem' });
+  await ctx.reply(
+    '🎟 Send a redeem code. No credit is applied until an admin-backed redeem system is configured.'
+  );
+});
+
+bot.action('broadcast', async (ctx) => {
+  await answer(ctx);
+  if (!isAdmin(ctx)) return ctx.reply('❌ Admin access required.');
+
+  setState(ctx.from.id, { action: 'broadcast' });
+  await ctx.reply(
+    '📣 Send the broadcast text. It will be sent only to users who explicitly enabled /subscribe. /cancel to stop.'
+  );
+});
+
+bot.action('admin', async (ctx) => {
+  await answer(ctx);
+  if (!isAdmin(ctx)) return ctx.reply('❌ Admin access required.');
+
+  const users = await User.countDocuments();
+  const optedIn = await User.countDocuments({ subscribed: true, blocked: false });
+  const accounts = await Account.countDocuments();
+
+  await ctx.reply(
+    `⚙️ Admin\n\nUsers: ${users}\nOpt-in recipients: ${optedIn}\nAccount records: ${accounts}\nReferral rate: ${await getSetting('referral_percent', 10)}%\n\n/setref 10 — change referral display rate`
+  );
+});
+
+bot.command('setref', async (ctx) => {
+  if (!isAdmin(ctx)) return ctx.reply('❌ Admin access required.');
+
+  const value = Number(String(ctx.message.text).split(/\s+/)[1]);
+  if (!Number.isFinite(value) || value < 0 || value > 100) {
+    return ctx.reply('Usage: /setref 10  (0-100)');
+  }
+
+  await setSetting('referral_percent', Math.round(value * 100) / 100);
+  await ctx.reply(`✅ Referral rate set to ${value}%.`);
+});
+
+bot.on('text', async (ctx) => {
+  const userId = idOf(ctx);
+  const current = getState(userId);
+  if (!current) return;
+
+  try {
+    const text = String(ctx.message.text || '').trim();
+
+    if (current.action === 'phone') {
+      const login = await beginLogin(userId, text);
+      setState(userId, { action: 'login_wait' });
+
+      login.promise.then(async () => {
+        clearState(userId);
+        await ctx.reply('✅ Telegram account connected successfully.');
+      }).catch(async (error) => {
+        clearState(userId);
+        await ctx.reply(`❌ Telegram login failed: ${error.message}`);
+      });
+
+      await ctx.reply('📨 OTP request sent. Send the Telegram login code here.');
+      return;
+    }
+
+    if (current.action === 'login_wait') {
+      const login = getPending(userId);
+
+      if (!login) {
+        return ctx.reply('⏳ Login is finishing or has expired. Check your account list.');
+      }
+
+      if (login.code) {
+        await submitCode(userId, text);
+        return ctx.reply(
+          '✅ OTP submitted. If 2-step verification is enabled, send the password when prompted; otherwise wait for the success message.'
+        );
+      }
+
+      if (login.password) {
+        await submitPassword(userId, text);
+        return ctx.reply('🔐 2-step password submitted. Please wait for Telegram to finish the login.');
+      }
+
+      return ctx.reply('⏳ Telegram is processing the login. Please wait.');
+    }
+
+    if (current.action === 'replytext') {
+      const account = await Account.findOne({
+        ownerId: userId
+      }).sort({ connectedAt: -1 });
+
+      if (!account) throw new Error('No connected account.');
+
+      await setAutoReply(account._id, account.autoReply, text);
+      clearState(userId);
+      await ctx.reply('✅ Auto Reply text saved.');
+      return;
+    }
+
+    if (current.action === 'promo') {
+      clearState(userId);
+      await ctx.reply(
+        `📢 Channel Promo\n\n${text}\n\nUse this as a formatted reference. No unsolicited bulk messages are sent.`
+      );
+      return;
+    }
+
+    if (current.action === 'redeem') {
+      clearState(userId);
+      await ctx.reply(
+        '🎟 Code received. No redemption was applied because a real admin-backed code table is not enabled.'
+      );
+      return;
+    }
+
+    if (current.action === 'broadcast') {
+      clearState(userId);
+
+      if (!isAdmin(ctx)) throw new Error('Admin access required.');
+      if (!text) throw new Error('Broadcast text cannot be empty.');
+      if (text.length > 4096) throw new Error('Broadcast text cannot exceed 4096 characters.');
+
+      await ctx.reply('⏳ Sending only to opted-in recipients. This may take a while.');
+      const result = await runBroadcast(text);
+
+      await ctx.reply(
+        `✅ Broadcast finished.\n\nSent: ${result.sent}\nFailed: ${result.failed}`
+      );
+    }
+  } catch (error) {
+    clearState(userId);
+    logger.error('Text handler failed', {
+      userId,
+      error: safeError(error)
+    });
+    await ctx.reply(`❌ ${error.message || 'Something went wrong.'`);
+  }
+});
+
+export async function launchBot() {
+  await bot.launch();
+  logger.info('Telegram bot started', {
+    username: bot.botInfo?.username || null
+  });
+}
+
+export async function stopBot(reason = 'shutdown') {
+  try { bot.stop(reason); } catch {}
+}
+
+export { bot };
