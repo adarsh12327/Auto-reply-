@@ -19,9 +19,19 @@ export function encrypt(plaintext) {
 export function decrypt(payload) {
   if (typeof payload !== 'string') throw new Error('Encrypted session is missing');
   const parts = payload.split('.');
-  if (parts.length !== 4 || parts[0] !== 'v1') throw new Error('Unsupported encrypted session format');
+  let ivPart;
+  let tagPart;
+  let dataPart;
 
-  const [, ivPart, tagPart, dataPart] = parts;
+  if (parts.length === 4 && parts[0] === 'v1') {
+    [, ivPart, tagPart, dataPart] = parts;
+  } else if (parts.length === 3) {
+    // Backward-compatible reader for the previous iv.tag.data format.
+    [ivPart, tagPart, dataPart] = parts;
+  } else {
+    throw new Error('Unsupported encrypted session format');
+  }
+
   const decipher = crypto.createDecipheriv('aes-256-gcm', getKey(), Buffer.from(ivPart, 'base64url'));
   decipher.setAuthTag(Buffer.from(tagPart, 'base64url'));
   return Buffer.concat([
