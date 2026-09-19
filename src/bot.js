@@ -480,9 +480,17 @@ bot.on('text', async (ctx) => {
 
       if (login.code) {
         await submitCode(userId, text);
-        return ctx.reply(
-          '✅ OTP submitted. If 2-step verification is enabled, send the password when prompted; otherwise wait for the success message.'
-        );
+
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          const updated = getPending(userId);
+          if (!updated) break;
+          if (updated.password) {
+            return ctx.reply('🔐 Telegram requires your 2-step verification password. Send it now.');
+          }
+        }
+
+        return ctx.reply('✅ OTP submitted. Please wait for Telegram to finish the login.');
       }
 
       if (login.password) {
