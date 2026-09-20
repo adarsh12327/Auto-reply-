@@ -1,88 +1,85 @@
 import mongoose from 'mongoose';
-import { logger } from './logger.js';
 
 const { Schema } = mongoose;
 
-const UserSchema = new Schema({
-  telegramId: { type: String, required: true, unique: true, index: true },
-  username: { type: String, default: '', trim: true, maxlength: 64 },
-  firstName: { type: String, default: '', trim: true, maxlength: 128 },
-  referrerId: { type: String, default: '', index: true },
-  referrals: { type: Number, default: 0, min: 0 },
-  referralEarned: { type: Number, default: 0, min: 0 },
-  subscribed: { type: Boolean, default: false, index: true },
-  blocked: { type: Boolean, default: false, index: true },
+const userSchema = new Schema({
+  telegramId: { type: Number, unique: true, index: true, required: true },
+  username: String,
+  firstName: String,
+  subscribed: { type: Boolean, default: false },
+  blocked: { type: Boolean, default: false },
+  referrerId: { type: Number, default: null },
+  referrals: { type: Number, default: 0 },
+  referralEarned: { type: Number, default: 0 },
+  createdAt: { type: Date, default: Date.now },
   lastSeenAt: { type: Date, default: Date.now }
-}, { timestamps: true, versionKey: false });
+});
 
-const AccountSchema = new Schema({
-  ownerId: { type: String, required: true, index: true },
-  phone: { type: String, required: true, trim: true },
-  session: { type: String, required: true, select: false },
-  autoReply: { type: Boolean, default: false, index: true },
-  replyText: { type: String, default: '', maxlength: 4096 },
-  status: { type: String, enum: ['connected', 'offline', 'error'], default: 'connected' },
-  lastError: { type: String, default: '' },
-  connectedAt: { type: Date, default: Date.now },
-  lastSeenAt: { type: Date, default: Date.now }
-}, { timestamps: true, versionKey: false });
+const accountSchema = new Schema({
+  ownerId: { type: Number, index: true, required: true },
+  telegramUserId: { type: Number, index: true },
+  phoneMasked: String,
+  sessionEncrypted: { type: String, select: false },
+  apiId: Number,
+  apiHashEncrypted: { type: String, select: false },
+  status: { type: String, enum: ['pending', 'connected', 'paused', 'error', 'removed'], default: 'pending' },
+  autoReplyEnabled: { type: Boolean, default: false },
+  autoReplyText: { type: String, default: '' },
+  connectedAt: Date,
+  lastError: String,
+  lastSeenAt: Date
+}, { timestamps: true });
+accountSchema.index({ ownerId: 1, phoneMasked: 1 }, { unique: true });
 
-AccountSchema.index({ ownerId: 1, phone: 1 }, { unique: true });
-
-const ReplyLogSchema = new Schema({
-  accountId: { type: Schema.Types.ObjectId, required: true, index: true },
+const replyLogSchema = new Schema({
+  accountId: { type: Schema.Types.ObjectId, index: true, required: true },
   peerId: { type: String, required: true },
   repliedAt: { type: Date, default: Date.now }
-}, { versionKey: false });
+});
+replyLogSchema.index({ accountId: 1, peerId: 1 }, { unique: true });
 
-ReplyLogSchema.index({ accountId: 1, peerId: 1 }, { unique: true });
+const consentSchema = new Schema({
+  ownerId: { type: Number, index: true, required: true },
+  recipientId: { type: String, required: true },
+  source: { type: String, enum: ['user_added', 'user_reply', 'bot_opt_in', 'group_permission'], required: true },
+  active: { type: Boolean, default: true },
+  createdAt: { type: Date, default: Date.now },
+  revokedAt: Date
+});
+consentSchema.index({ ownerId: 1, recipientId: 1 }, { unique: true });
 
-const SettingSchema = new Schema({
-  key: { type: String, required: true, unique: true },
-  value: { type: Schema.Types.Mixed }
-}, { timestamps: true, versionKey: false });
+const campaignSchema = new Schema({
+  ownerId: { type: Number, index: true, required: true },
+  accountId: { type: Schema.Types.ObjectId, required: true },
+  type: { type: String, enum: ['dm', 'group', 'channel'], required: true },
+  targetIds: [String],
+  message: { type: String, required: true },
+  status: { type: String, enum: ['draft', 'scheduled', 'running', 'paused', 'completed', 'cancelled', 'failed'], default: 'draft' },
+  scheduledAt: Date,
+  stats: {
+    total: { type: Number, default: 0 },
+    sent: { type: Number, default: 0 },
+    failed: { type: Number, default: 0 },
+    skipped: { type: Number, default: 0 }
+  }
+}, { timestamps: true });
 
-export const User = mongoose.model('User', UserSchema);
-export const Account = mongoose.model('Account', AccountSchema);
-export const ReplyLog = mongoose.model('ReplyLog', ReplyLogSchema);
-export const Setting = mongoose.model('Setting', SettingSchema);
+const settingSchema = new Schema({
+  key: { type: String, unique: true },
+  value: Schema.Types.Mixed
+});
 
-let connected = false;
+export const User = mongoose.model('User', userSchema);
+export const Account = mongoose.model('Account', accountSchema);
+export const ReplyLog = mongoose.model('ReplyLog', replyLogSchema);
+export const Consent = mongoose.model('Consent', consentSchema);
+export const Campaign = mongoose.model('Campaign', campaignSchema);
+export const Setting = mongoose.model('Setting', settingSchema);
 
 export async function connectDb(uri) {
-  if (connected) return;
-  await mongoose.connect(uri, {
-    maxPoolSize: 10,
-    minPoolSize: 1,
-    serverSelectionTimeoutMS: 15000,
-    connectTimeoutMS: 15000,
-    family: 4,
-    autoIndex: true
-  });
-  connected = true;
-  logger.info('MongoDB connected', { host: mongoose.connection.host });
+  await mongoose.connect(uri);
 }
 
 export async function closeDb() {
-  if (!connected) return;
   await mongoose.disconnect();
-  connected = false;
-  logger.info('MongoDB disconnected');
-}
-
-export async function getSetting(key, fallback = null) {
-  const row = await Setting.findOne({ key }).lean();
-  return row ? row.value : fallback;
-}
-
-export async function setSetting(key, value) {
-  return Setting.findOneAndUpdate(
-    { key },
-    { $set: { value } },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
-  ).lean();
-}
-
-export async function incrementReferral(referrerId) {
-  return User.updateOne({ telegramId: referrerId }, { $inc: { referrals: 1 } });
 }

@@ -1,26 +1,14 @@
-const levels = { error: 0, warn: 1, info: 2, debug: 3 };
-const currentLevel = process.env.LOG_LEVEL?.toLowerCase() || 'info';
+const levels = { debug: 10, info: 20, warn: 30, error: 40 };
 
 function write(level, message, meta = {}) {
-  if (levels[level] > (levels[currentLevel] ?? levels.info)) return;
-  const line = JSON.stringify({ ts: new Date().toISOString(), level, message, ...meta });
-  if (level === 'error') console.error(line);
-  else console.log(line);
+  const configured = levels[process.env.LOG_LEVEL || 'info'] ?? 20;
+  if (levels[level] < configured) return;
+  console.log(JSON.stringify({ time: new Date().toISOString(), level, message, ...meta }));
 }
 
 export const logger = {
-  error: (message, meta) => write('error', message, meta),
-  warn: (message, meta) => write('warn', message, meta),
-  info: (message, meta) => write('info', message, meta),
-  debug: (message, meta) => write('debug', message, meta)
+  debug: (m, x) => write('debug', m, x),
+  info: (m, x) => write('info', m, x),
+  warn: (m, x) => write('warn', m, x),
+  error: (m, x) => write('error', m, x)
 };
-
-export function safeError(error) {
-  if (!error) return { message: 'Unknown error' };
-  return {
-    name: error.name,
-    message: error.message,
-    code: error.code,
-    stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-  };
-}

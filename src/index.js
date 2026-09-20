@@ -1,47 +1,46 @@
-import 'dotenv/config';
 import { loadConfig } from './config.js';
-import { connectDb, closeDb } from './db.js';
-import { loadAccounts, shutdownAccounts } from './userClient.js';
-import { launchBot, stopBot } from './bot.js';
-import { logger, safeError } from './logger.js';
+import { connectDb, closeDb, Account } from './db.js';
+import { createBot } from './bot/bot.js';
+import { createUserClient, attachAutoReply } from './services/telegramClient.js';
+import { logger } from './logger.js';
 
 const config = loadConfig();
-let shuttingDown = false;
 
-async function shutdown(signal) {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  logger.info('Shutdown requested', { signal });
+await connectDb(config.mongoUri);
+logger.info('MongoDB connected');
 
-  try { await stopBot(signal); } catch (error) { logger.error('Bot shutdown failed', { error: safeError(error) }); }
-  try { await shutdownAccounts(); } catch (error) { logger.error('Telegram account shutdown failed', { error: safeError(error) }); }
-  try { await closeDb(); } catch (error) { logger.error('Database shutdown failed', { error: safeError(error) }); }
+const accounts = await Account.find({ status: 'connected' }).select('+sessionEncrypted');
+logger.info('Loading connected accounts', { count: accounts.length });
 
+for (const account of accounts) {
+  try {
+    const client = await createUserClient({
+      account,
+      apiId: account.apiId || config.telegramApiId,
+      apiHash: config.telegramApiHash,
+      encryptionKey: config.encryptionKey
+    });
+    await attachAutoReply(account, client);
+  } catch (error) {
+    account.status = 'error';
+    account.lastError = error.message;
+    await account.save();
+    logger.error('Failed to load account', { accountId: String(account._id), error: error.message });
+  }
+}
+
+const bot = createBot(config);
+await bot.launch();
+logger.info('Bot started');
+
+const shutdown = async signal => {
+  logger.info('Shutting down', { signal });
+  bot.stop(signal);
+  await closeDb();
   process.exit(0);
-}
+};
 
-async function start() {
-  await connectDb(config.mongoUri);
-  await loadAccounts();
-  await launchBot();
-  logger.info('Application ready', { version: config.appVersion, environment: config.nodeEnv });
-}
-
-process.once('SIGINT', () => void shutdown('SIGINT'));
-process.once('SIGTERM', () => void shutdown('SIGTERM'));
-
-process.on('unhandledRejection', (reason) => {
-  logger.error('Unhandled promise rejection', {
-    error: safeError(reason instanceof Error ? reason : new Error(String(reason)))
-  });
-});
-
-process.on('uncaughtException', (error) => {
-  logger.error('Uncaught exception', { error: safeError(error) });
-  void shutdown('uncaughtException');
-});
-
-start().catch(async (error) => {
-  logger.error('Application startup failed', { error: safeError(error) });
-  await shutdown('startup_failure');
-});
+process.once('SIGINT', () => shutdown('SIGINT'));
+process.once('SIGTERM', () => shutdown('SIGTERM'));
+process.on('unhandledRejection', error => logger.error('Unhandled rejection', { error: error?.message }));
+process.on('uncaughtException', error => logger.error('Uncaught exception', { error: error?.message }));

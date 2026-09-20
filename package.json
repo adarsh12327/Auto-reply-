@@ -1,18 +1,17 @@
 {
-  "name": "telegram-account-manager",
-  "version": "2.0.0",
+  "name": "telegram-manager",
+  "version": "3.0.0",
   "private": true,
   "type": "module",
-  "main": "src/index.js",
+  "engines": { "node": ">=20" },
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "check": "node --check src/index.js && node --check src/config.js && node --check src/db.js && node --check src/crypto.js && node --check src/userClient.js && node --check src/bot.js && node --check src/logger.js"
+    "check": "node --check src/index.js && node --check src/config.js && node --check src/db.js && node --check src/crypto.js && node --check src/logger.js && node --check src/bot/bot.js && node --check src/bot/keyboards.js && node --check src/services/telegramClient.js && node --check src/services/campaignService.js && node --check src/handlers/start.js && node --check src/handlers/account.js && node --check src/handlers/autoReply.js && node --check src/handlers/campaign.js && node --check src/handlers/admin.js"
   },
-  "engines": { "node": ">=20" },
   "dependencies": {
     "dotenv": "^16.4.7",
-    "mongoose": "^8.9.5",
+    "mongoose": "^8.19.1",
     "telegraf": "^4.16.3",
     "telegram": "^2.26.22"
   }

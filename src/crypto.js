@@ -1,41 +1,23 @@
 import crypto from 'node:crypto';
-import { isValidHexKey } from './config.js';
 
-function getKey() {
-  const raw = process.env.SESSION_ENCRYPTION_KEY;
-  if (!isValidHexKey(raw)) throw new Error('SESSION_ENCRYPTION_KEY must be exactly 64 hexadecimal characters');
-  return Buffer.from(raw, 'hex');
-}
+const VERSION = 'v1';
 
-export function encrypt(plaintext) {
-  if (typeof plaintext !== 'string' || !plaintext) throw new Error('Cannot encrypt an empty session');
+export function encryptText(plainText, key) {
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', getKey(), iv);
-  const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(plainText, 'utf8'), cipher.final()]);
   const tag = cipher.getAuthTag();
-  return ['v1', iv.toString('base64url'), tag.toString('base64url'), ciphertext.toString('base64url')].join('.');
+  return [VERSION, iv.toString('base64url'), tag.toString('base64url'), encrypted.toString('base64url')].join('.');
 }
 
-export function decrypt(payload) {
-  if (typeof payload !== 'string') throw new Error('Encrypted session is missing');
-  const parts = payload.split('.');
-  let ivPart;
-  let tagPart;
-  let dataPart;
+export function decryptText(payload, key) {
+  const [version, ivText, tagText, dataText] = String(payload).split('.');
+  if (version !== VERSION) throw new Error('Unsupported encrypted session format');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(ivText, 'base64url'));
+  decipher.setAuthTag(Buffer.from(tagText, 'base64url'));
+  return Buffer.concat([decipher.update(Buffer.from(dataText, 'base64url')), decipher.final()]).toString('utf8');
+}
 
-  if (parts.length === 4 && parts[0] === 'v1') {
-    [, ivPart, tagPart, dataPart] = parts;
-  } else if (parts.length === 3) {
-    // Backward-compatible reader for the previous iv.tag.data format.
-    [ivPart, tagPart, dataPart] = parts;
-  } else {
-    throw new Error('Unsupported encrypted session format');
-  }
-
-  const decipher = crypto.createDecipheriv('aes-256-gcm', getKey(), Buffer.from(ivPart, 'base64url'));
-  decipher.setAuthTag(Buffer.from(tagPart, 'base64url'));
-  return Buffer.concat([
-    decipher.update(Buffer.from(dataPart, 'base64url')),
-    decipher.final()
-  ]).toString('utf8');
+export function randomHexKey() {
+  return crypto.randomBytes(32).toString('hex');
 }
