@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "functions": {
+    "api/webhook.js": {
+      "maxDuration": 60
+    },
+    "api/setup.js": {
+      "maxDuration": 30
+    }
+  }
+}
