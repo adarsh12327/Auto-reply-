@@ -12,7 +12,8 @@ function statusText(account) {
     ? `🤖 Auto Reply
 
 Status: ${account.autoReplyEnabled ? '🟢 ON' : '🔴 OFF'}
-Reply: ${account.autoReplyText || 'Not set'}`
+Reply: ${account.autoReplyText || 'Not set'}
+Rule: Offline users only · max 1 reply every 6 hours`
     : '❌ Connect a Telegram account first.';
 }
 
@@ -42,7 +43,7 @@ export function registerAutoReplyHandlers(bot) {
 
     pendingReply.set(ctx.from.id, { messageId: ctx.callbackQuery.message.message_id });
     await ctx.editMessageText(
-      '✏️ Set Auto Reply\n\nSend the message you want your Telegram account to automatically send as its first reply.\n\n/cancel to stop.',
+      '✏️ Set Auto Reply\n\nSend the message you want your Telegram account to automatically send when the sender is offline. The same sender can receive it at most once every 6 hours.\n\n/cancel to stop.',
       { reply_markup: { inline_keyboard: [[{ text: '⬅️ Back to Home', callback_data: 'auto_reply_cancel' }]] } }
     );
   });
