@@ -11,5 +11,14 @@ export const mainKeyboard = () => Markup.inlineKeyboard([
 ]);
 
 export const backKeyboard = () => Markup.inlineKeyboard([
-  [Markup.button.callback('⬅️ Main Menu', 'main_menu')]
+  [Markup.button.callback('⬅️ Back to Home', 'main_menu')]
+]);
+
+export const autoReplyKeyboard = enabled => Markup.inlineKeyboard([
+  [
+    Markup.button.callback('✏️ Set Reply', 'auto_reply_set'),
+    Markup.button.callback(enabled ? '⏸️ Turn OFF' : '▶️ Turn ON', enabled ? 'auto_reply_off' : 'auto_reply_on')
+  ],
+  [Markup.button.callback('🗑️ Clear Reply', 'auto_reply_clear')],
+  [Markup.button.callback('⬅️ Back to Home', 'main_menu')]
 ]);
