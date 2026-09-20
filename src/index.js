@@ -17,29 +17,29 @@ async function loadConnectedAccounts() {
 
   try {
     const accounts = await Account.find({ status: 'connected' })
-    .select('+sessionEncrypted +apiHashEncrypted +phoneEncrypted');
+      .select('+sessionEncrypted +apiHashEncrypted +phoneEncrypted');
 
-  logger.info('Loading connected accounts', { count: accounts.length });
+    logger.info('Loading connected accounts', { count: accounts.length });
 
-  for (const account of accounts) {
-    try {
-      const client = await createUserClient({
-        account,
-        encryptionKey: config.encryptionKey
-      });
-      await attachAutoReply(account, client);
-      logger.info('Telegram account ready', {
-        accountId: String(account._id),
-        telegramUserId: account.telegramUserId
-      });
-    } catch (error) {
-      // Keep the account connected in MongoDB. Telegram/network outages are
-      // often temporary, so the retry loop can restore the client automatically.
-      logger.error('Failed to load Telegram account; will retry', {
-        accountId: String(account._id),
-        error: error?.message
-      });
-    }
+    for (const account of accounts) {
+      try {
+        const client = await createUserClient({
+          account,
+          encryptionKey: config.encryptionKey
+        });
+        await attachAutoReply(account, client);
+        logger.info('Telegram account ready', {
+          accountId: String(account._id),
+          telegramUserId: account.telegramUserId
+        });
+      } catch (error) {
+        // Keep the account connected in MongoDB. Telegram/network outages are
+        // often temporary, so the retry loop can restore the client automatically.
+        logger.error('Failed to load Telegram account; will retry', {
+          accountId: String(account._id),
+          error: error?.message
+        });
+      }
     }
   } finally {
     loadingAccounts = false;
