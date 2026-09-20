@@ -10,6 +10,7 @@ await connectDb(config.mongoUri);
 logger.info('MongoDB connected');
 
 let loadingAccounts = false;
+const loadedAccounts = new Set();
 
 async function loadConnectedAccounts() {
   if (loadingAccounts) return;
@@ -19,24 +20,24 @@ async function loadConnectedAccounts() {
     const accounts = await Account.find({ status: 'connected' })
       .select('+sessionEncrypted +apiHashEncrypted +phoneEncrypted');
 
-    logger.info('Loading connected accounts', { count: accounts.length });
-
     for (const account of accounts) {
+      const id = String(account._id);
+      if (loadedAccounts.has(id)) continue;
+
       try {
         const client = await createUserClient({
           account,
           encryptionKey: config.encryptionKey
         });
         await attachAutoReply(account, client);
+        loadedAccounts.add(id);
         logger.info('Telegram account ready', {
-          accountId: String(account._id),
+          accountId: id,
           telegramUserId: account.telegramUserId
         });
       } catch (error) {
-        // Keep the account connected in MongoDB. Telegram/network outages are
-        // often temporary, so the retry loop can restore the client automatically.
         logger.error('Failed to load Telegram account; will retry', {
-          accountId: String(account._id),
+          accountId: id,
           error: error?.message
         });
       }
@@ -48,8 +49,6 @@ async function loadConnectedAccounts() {
 
 await loadConnectedAccounts();
 
-// Retry accounts that could not connect because of a temporary Telegram/network
-// problem. The clients map prevents duplicate clients/handlers.
 const accountRetryTimer = setInterval(() => {
   loadConnectedAccounts().catch(error => {
     logger.error('Account retry cycle failed', { error: error?.message });
