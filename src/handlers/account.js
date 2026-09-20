@@ -1,5 +1,5 @@
 import { Account } from '../db.js';
-import { encryptText, decryptText } from '../crypto.js';
+import { encryptText } from '../crypto.js';
 import { mainKeyboard } from '../bot/keyboards.js';
 import { createUserClient, attachAutoReply } from '../services/telegramClient.js';
 
@@ -22,6 +22,7 @@ async function waitForLoginInput(ctx, step, prompt) {
   return new Promise((resolve, reject) => {
     pending.set(ctx.from.id, { step, resolve, reject });
   });
+}
 
 export function registerAccountHandlers(bot, config) {
   bot.action('add_account', async ctx => {
@@ -98,26 +99,28 @@ export function registerAccountHandlers(bot, config) {
         throw error;
       }
 
-      pending.set(ctx.from.id, { step: 'login', accountId: account._id, apiId: state.apiId });
+      pending.set(ctx.from.id, { step: 'login', accountId: account._id });
+      await ctx.reply('4/4 Connecting… Telegram may send a login code to your account.');
 
-      await ctx.reply('4/4 Connecting… Telegram may send a login code to your account.\nPlease send the code here when I ask.');
-      
       try {
+        const storedAccount = await Account.findById(account._id)
+          .select('+apiHashEncrypted +phoneEncrypted +sessionEncrypted');
+
         const client = await createUserClient({
-          account: await Account.findById(account._id).select('+apiHashEncrypted +phoneEncrypted +sessionEncrypted'),
+          account: storedAccount,
           encryptionKey: config.encryptionKey,
           onLoginCode: async type => {
             const prompt = type === 'code'
               ? '📩 Enter the Telegram login code you received:'
               : '🔑 Enter your Telegram 2-step verification password:';
-            return waitForLoginInput(ctx, type, prompt).then(async value => {
-              await ctx.reply(type === 'code' ? 'Code received. Checking…' : 'Password received. Checking…');
-              return value;
-            });
+
+            const value = await waitForLoginInput(ctx, type, prompt);
+            await ctx.reply(type === 'code' ? 'Code received. Checking…' : 'Password received. Checking…');
+            return value;
           }
         });
 
-        await attachAutoReply(account, client);
+        await attachAutoReply(storedAccount, client);
         pending.delete(ctx.from.id);
         await ctx.reply('✅ Telegram account connected successfully!', mainKeyboard());
       } catch (error) {
