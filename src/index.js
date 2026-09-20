@@ -9,8 +9,14 @@ const config = loadConfig();
 await connectDb(config.mongoUri);
 logger.info('MongoDB connected');
 
+let loadingAccounts = false;
+
 async function loadConnectedAccounts() {
-  const accounts = await Account.find({ status: 'connected' })
+  if (loadingAccounts) return;
+  loadingAccounts = true;
+
+  try {
+    const accounts = await Account.find({ status: 'connected' })
     .select('+sessionEncrypted +apiHashEncrypted +phoneEncrypted');
 
   logger.info('Loading connected accounts', { count: accounts.length });
@@ -34,6 +40,9 @@ async function loadConnectedAccounts() {
         error: error?.message
       });
     }
+    }
+  } finally {
+    loadingAccounts = false;
   }
 }
 
