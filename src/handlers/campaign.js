@@ -1,4 +1,4 @@
-import { Campaign, Account, Consent } from '../db.js';
+import { Campaign, Account, Consent, ScannedPeer } from '../db.js';
 import {
   backKeyboard,
   dmMenuKeyboard,
@@ -18,7 +18,7 @@ import {
   pauseCampaign,
   cancelCampaign
 } from '../services/campaignService.js';
-import { listWritableGroups } from '../services/telegramClient.js';
+import { listWritableGroups, listPersonalDialogs } from '../services/telegramClient.js';
 
 const pendingDm = new Map();
 const pendingGroup = new Map();
@@ -67,6 +67,40 @@ Progress: ${processed}/${total}
 Sent: ${sent}
 Failed: ${failed}
 Skipped: ${skipped}`;
+}
+
+
+async function saveScannedPeers(ownerId, accountId, peers) {
+  if (!peers.length) return;
+  const now = new Date();
+  await ScannedPeer.bulkWrite(
+    peers.map(peer => ({
+      updateOne: {
+        filter: { ownerId, accountId, peerId: peer.id },
+        update: {
+          $set: {
+            type: peer.type,
+            name: peer.name || '',
+            username: peer.username || '',
+            lastSeenAt: now
+          },
+          $setOnInsert: { ownerId, accountId, peerId: peer.id }
+        },
+        upsert: true
+      }
+    })),
+    { ordered: false }
+  );
+}
+
+function scannedListText(title, peers) {
+  if (!peers.length) return `🔎 ${title}\n\nNo matching chats found.`;
+  const lines = peers.slice(0, 50).map((peer, index) => {
+    const handle = peer.username ? ` @${peer.username}` : '';
+    return `${index + 1}. ${peer.name || 'Unknown'}${handle}\n   ID: ${peer.id}`;
+  });
+  const extra = peers.length > 50 ? `\n\n…and ${peers.length - 50} more saved.` : '';
+  return `🔎 ${title}\n\nFound: ${peers.length}\n\n${lines.join('\n')}\n${extra}\n\nSaved in the account directory. DM campaigns still use the authorization checks before sending.`;
 }
 
 async function safeEdit(ctx, text, keyboard) {
@@ -301,6 +335,51 @@ async function startGroupCampaign(ctx, campaign, config) {
 }
 
 export function registerCampaignHandlers(bot, config) {
+
+  bot.action('scan_menu', async ctx => {
+    await ctx.answerCbQuery();
+    await ctx.editMessageText(
+      '🔎 Telegram Scanner\n\nChoose what you want to scan.',
+      (await import('../bot/keyboards.js')).scanMenuKeyboard()
+    );
+  });
+
+  bot.action('scan_personal', async ctx => {
+    await ctx.answerCbQuery('Scanning personal chats...');
+    try {
+      const account = await getConnectedAccount(ctx.from.id);
+      if (!account) return safeEdit(ctx, '❌ Connect your Telegram account first.', backKeyboard());
+
+      const peers = await listPersonalDialogs(account._id);
+      await saveScannedPeers(ctx.from.id, account._id, peers);
+      await safeEdit(
+        ctx,
+        scannedListText('Personal Account', peers),
+        (await import('../bot/keyboards.js')).scanListKeyboard('personal')
+      );
+    } catch (error) {
+      await safeEdit(ctx, `❌ Personal scan failed\\n\\n${error.message}`, backKeyboard());
+    }
+  });
+
+  bot.action('scan_groups', async ctx => {
+    await ctx.answerCbQuery('Scanning groups...');
+    try {
+      const account = await getConnectedAccount(ctx.from.id);
+      if (!account) return safeEdit(ctx, '❌ Connect your Telegram account first.', backKeyboard());
+
+      const peers = await listWritableGroups(account._id);
+      await saveScannedPeers(ctx.from.id, account._id, peers);
+      await safeEdit(
+        ctx,
+        scannedListText('Groups', peers),
+        (await import('../bot/keyboards.js')).scanListKeyboard('groups')
+      );
+    } catch (error) {
+      await safeEdit(ctx, `❌ Group scan failed\\n\\n${error.message}`, backKeyboard());
+    }
+  });
+
   bot.action('campaign_dm', async ctx => {
     await ctx.answerCbQuery();
     const count = await Consent.countDocuments({ ownerId: ctx.from.id, active: true });
