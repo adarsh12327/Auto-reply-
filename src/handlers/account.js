@@ -46,6 +46,73 @@ async function createPendingLoginClient(account, config) {
   return { client, apiHash, phone };
 }
 
+function telegramErrorText(error) {
+  return String(error?.errorMessage || error?.message || error || '').toUpperCase();
+}
+
+async function sendLoginCode(account, config, { force = false } = {}) {
+  const now = Date.now();
+  const sentAt = account.loginCodeSentAt ? new Date(account.loginCodeSentAt).getTime() : 0;
+
+  // Telegram webhooks can be retried and Vercel can run two invocations
+  // at once. Do not issue a second code for the same login attempt.
+  if (
+    !force &&
+    account.loginPhoneCodeHashEncrypted &&
+    sentAt &&
+    now - sentAt < 10 * 60 * 1000
+  ) {
+    return { sent: false, alreadySent: true };
+  }
+
+  const staleLock = new Date(now - 60 * 1000);
+  const locked = await Account.findOneAndUpdate(
+    {
+      _id: account._id,
+      status: 'pending',
+      loginStep: 'code',
+      $or: [
+        { loginCodeSendingAt: null },
+        { loginCodeSendingAt: { $exists: false } },
+        { loginCodeSendingAt: { $lt: staleLock } }
+      ]
+    },
+    { $set: { loginCodeSendingAt: new Date() } },
+    { new: true }
+  ).select('+apiHashEncrypted +phoneEncrypted +sessionEncrypted +loginPhoneCodeHashEncrypted');
+
+  if (!locked) return { sent: false, locked: true };
+
+  let client;
+  try {
+    const created = await createPendingLoginClient(locked, config);
+    client = created.client;
+
+    const result = await client.sendCode(
+      { apiId: locked.apiId, apiHash: created.apiHash },
+      created.phone
+    );
+
+    locked.sessionEncrypted = encryptText(client.session.save(), config.encryptionKey);
+    locked.loginPhoneCodeHashEncrypted = encryptText(result.phoneCodeHash, config.encryptionKey);
+    locked.loginCodeSentAt = new Date();
+    locked.loginCodeSendingAt = null;
+    locked.loginStep = 'code';
+    locked.lastError = '';
+    await locked.save();
+
+    return { sent: true, isCodeViaApp: Boolean(result.isCodeViaApp) };
+  } catch (error) {
+    await Account.updateOne(
+      { _id: locked._id },
+      { $set: { loginCodeSendingAt: null, lastError: error?.message || String(error) } }
+    );
+    throw error;
+  } finally {
+    await client?.disconnect().catch(() => {});
+  }
+}
+
 async function finishLogin(account, config, code, password = null) {
   const { client, apiHash, phone } = await createPendingLoginClient(account, config);
 
@@ -224,34 +291,32 @@ export function registerAccountHandlers(bot, config) {
       }
 
       try {
-        const apiHash = state.apiHash;
-        const client = new TelegramClient(
-          new StringSession(''),
-          state.apiId,
-          apiHash,
-          { connectionRetries: 5 }
-        );
-
-        await client.connect();
-        const result = await client.sendCode(
-          { apiId: state.apiId, apiHash },
-          phone
-        );
-
-        account.sessionEncrypted = encryptText(client.session.save(), config.encryptionKey);
-        account.loginPhoneCodeHashEncrypted = encryptText(result.phoneCodeHash, config.encryptionKey);
+        // Clear any previous login challenge before starting this attempt.
+        account.loginPhoneCodeHashEncrypted = undefined;
+        account.loginCodeSentAt = null;
+        account.loginCodeSendingAt = null;
         account.loginStep = 'code';
         await account.save();
-        await client.disconnect().catch(() => {});
+
+        const result = await sendLoginCode(account, config);
 
         pending.set(ctx.from.id, { step: 'code', accountId: account._id });
-        await ctx.reply(
-          '4/4 📩 Telegram login code sent.\n\n' +
-          'Send the code here. Your code is never stored.\n\n/cancel to stop.'
-        );
+
+        if (result.alreadySent || result.locked) {
+          await ctx.reply(
+            '4/4 📩 A Telegram login code has already been requested for this login.\\n\\n' +
+            'Enter the latest code you received.\\n\\n/cancel to stop.'
+          );
+        } else {
+          await ctx.reply(
+            '4/4 📩 Telegram login code sent.\\n\\n' +
+            'Send the latest code here. Your code is never stored.\\n\\n/cancel to stop.'
+          );
+        }
       } catch (error) {
         account.status = 'error';
         account.loginStep = null;
+        account.loginCodeSendingAt = null;
         account.lastError = error.message;
         await account.save();
         pending.delete(ctx.from.id);
@@ -274,7 +339,13 @@ export function registerAccountHandlers(bot, config) {
 
       try {
         if (state.step === 'code') {
-          const result = await finishLogin(account, config, text);
+          const code = text.replace(/\s+/g, '');
+          if (!/^\d{3,8}$/.test(code)) {
+            await ctx.reply('❌ Telegram login code must contain only digits. Please send the latest code.');
+            return;
+          }
+
+          const result = await finishLogin(account, config, code);
 
           if (result.passwordRequired) {
             pending.set(ctx.from.id, { step: 'password', accountId: account._id });
@@ -296,9 +367,58 @@ export function registerAccountHandlers(bot, config) {
         pending.delete(ctx.from.id);
         await ctx.reply('✅ Telegram account connected successfully!', mainKeyboard());
       } catch (error) {
+        const errorText = telegramErrorText(error);
+
+        // An expired hash/code is recoverable. Request a fresh code and
+        // replace the stored hash so the next OTP belongs to this attempt.
+        if (
+          state.step === 'code' &&
+          (errorText.includes('PHONE_CODE_EXPIRED') || errorText.includes('PHONE_CODE_HASH_INVALID'))
+        ) {
+          try {
+            const resend = await sendLoginCode(account, config, { force: true });
+
+            if (resend.sent) {
+              pending.set(ctx.from.id, { step: 'code', accountId: account._id });
+              await ctx.reply(
+                '⚠️ The previous Telegram login code expired or was no longer valid.\\n\\n' +
+                '📩 I requested a fresh code. Please enter the latest code from Telegram.'
+              );
+              return;
+            }
+          } catch (resendError) {
+            account.lastError = resendError?.message || String(resendError);
+            await account.save();
+            await ctx.reply(
+              '❌ The Telegram code expired, and a fresh code could not be requested right now.\\n\\n' +
+              'Please wait a little and try again, or /cancel.'
+            );
+            return;
+          }
+        }
+
         account.lastError = error.message;
         await account.save();
-        await ctx.reply(`❌ Telegram login failed: ${error.message}\n\nPlease send the correct ${state.step === 'code' ? 'code' : '2FA password'} again, or /cancel.`);
+
+        if (state.step === 'code' && errorText.includes('PHONE_CODE_INVALID')) {
+          await ctx.reply(
+            '❌ Invalid Telegram login code.\\n\\n' +
+            'Enter the latest code from Telegram. Do not use an older code.'
+          );
+          return;
+        }
+
+        if (state.step === 'password') {
+          await ctx.reply(
+            '❌ 2FA password was not accepted.\\n\\n' +
+            'Please enter the correct Telegram 2-step verification password, or /cancel.'
+          );
+          return;
+        }
+
+        await ctx.reply(
+          `❌ Telegram login failed: ${error.message}\\n\\nPlease send the latest code again, or /cancel.`
+        );
       }
       return;
     }
