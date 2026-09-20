@@ -54,7 +54,8 @@ export const dmAudienceKeyboard = recipients => {
   return Markup.inlineKeyboard(rows);
 };
 
-export const dmDraftKeyboard = campaignId => Markup.inlineKeyboard([
+export const dmDraftKeyboard = (campaignId, delayMs = 20000) => Markup.inlineKeyboard([
+  [Markup.button.callback('⏱️ Delay: ' + Math.round(delayMs / 1000) + 's', 'dm_delay_menu:' + campaignId)],
   [Markup.button.callback('▶️ Send DM', 'dm_send:' + campaignId)],
   [Markup.button.callback('✏️ Edit Message', 'dm_edit')],
   [Markup.button.callback('👥 Recipients', 'dm_audience')],
