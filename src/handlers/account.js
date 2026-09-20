@@ -291,12 +291,23 @@ export function registerAccountHandlers(bot, config) {
       }
 
       try {
-        // Clear any previous login challenge before starting this attempt.
-        account.loginPhoneCodeHashEncrypted = undefined;
-        account.loginCodeSentAt = null;
-        account.loginCodeSendingAt = null;
-        account.loginStep = 'code';
-        await account.save();
+        // Keep an already-active challenge intact. This prevents a duplicate
+        // Telegram webhook delivery from replacing the newest phone-code hash.
+        const sentAt = account.loginCodeSentAt ? new Date(account.loginCodeSentAt).getTime() : 0;
+        const challengeActive =
+          account.status === 'pending' &&
+          (
+            Boolean(account.loginCodeSendingAt) ||
+            Boolean(account.loginPhoneCodeHashEncrypted && sentAt && Date.now() - sentAt < 10 * 60 * 1000)
+          );
+
+        if (!challengeActive) {
+          account.loginPhoneCodeHashEncrypted = undefined;
+          account.loginCodeSentAt = null;
+          account.loginCodeSendingAt = null;
+          account.loginStep = 'code';
+          await account.save();
+        }
 
         const result = await sendLoginCode(account, config);
 
@@ -304,13 +315,13 @@ export function registerAccountHandlers(bot, config) {
 
         if (result.alreadySent || result.locked) {
           await ctx.reply(
-            '4/4 📩 A Telegram login code has already been requested for this login.\\n\\n' +
-            'Enter the latest code you received.\\n\\n/cancel to stop.'
+            '4/4 📩 A Telegram login code has already been requested for this login.\n\n' +
+            'Enter the latest code you received.\n\n/cancel to stop.'
           );
         } else {
           await ctx.reply(
-            '4/4 📩 Telegram login code sent.\\n\\n' +
-            'Send the latest code here. Your code is never stored.\\n\\n/cancel to stop.'
+            '4/4 📩 Telegram login code sent.\n\n' +
+            'Send the latest code here. Your code is never stored.\n\n/cancel to stop.'
           );
         }
       } catch (error) {
@@ -381,7 +392,7 @@ export function registerAccountHandlers(bot, config) {
             if (resend.sent) {
               pending.set(ctx.from.id, { step: 'code', accountId: account._id });
               await ctx.reply(
-                '⚠️ The previous Telegram login code expired or was no longer valid.\\n\\n' +
+                '⚠️ The previous Telegram login code expired or was no longer valid.\n\n' +
                 '📩 I requested a fresh code. Please enter the latest code from Telegram.'
               );
               return;
@@ -390,7 +401,7 @@ export function registerAccountHandlers(bot, config) {
             account.lastError = resendError?.message || String(resendError);
             await account.save();
             await ctx.reply(
-              '❌ The Telegram code expired, and a fresh code could not be requested right now.\\n\\n' +
+              '❌ The Telegram code expired, and a fresh code could not be requested right now.\n\n' +
               'Please wait a little and try again, or /cancel.'
             );
             return;
@@ -402,7 +413,7 @@ export function registerAccountHandlers(bot, config) {
 
         if (state.step === 'code' && errorText.includes('PHONE_CODE_INVALID')) {
           await ctx.reply(
-            '❌ Invalid Telegram login code.\\n\\n' +
+            '❌ Invalid Telegram login code.\n\n' +
             'Enter the latest code from Telegram. Do not use an older code.'
           );
           return;
@@ -410,14 +421,14 @@ export function registerAccountHandlers(bot, config) {
 
         if (state.step === 'password') {
           await ctx.reply(
-            '❌ 2FA password was not accepted.\\n\\n' +
+            '❌ 2FA password was not accepted.\n\n' +
             'Please enter the correct Telegram 2-step verification password, or /cancel.'
           );
           return;
         }
 
         await ctx.reply(
-          `❌ Telegram login failed: ${error.message}\\n\\nPlease send the latest code again, or /cancel.`
+          `❌ Telegram login failed: ${error.message}\n\nPlease send the latest code again, or /cancel.`
         );
       }
       return;
