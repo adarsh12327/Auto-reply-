@@ -1,5 +1,5 @@
 import { Campaign, Consent, Account } from '../db.js';
-import { getClient, canPost, sendAuthorizedMessage } from './telegramClient.js';
+import { getClient, ensureAccountClient, canPost, sendAuthorizedMessage } from './telegramClient.js';
 import { logger } from '../logger.js';
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -47,8 +47,11 @@ export async function runCampaign(
   const account = await Account.findById(campaign.accountId).select('+sessionEncrypted');
   if (!account) throw new Error('Account not found');
 
-  const client = getClient(account._id);
-  if (!client) throw new Error('Telegram account is not connected');
+  const client = getClient(account._id) || await ensureAccountClient(
+    account._id,
+    process.env.SESSION_ENCRYPTION_KEY
+  );
+  if (!client?.connected) throw new Error('Telegram account is not connected');
 
   const effectiveDelayMs = Math.max(1000, Number(campaign.delayMs || delayMs) || 3000);
 
