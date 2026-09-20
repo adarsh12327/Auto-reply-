@@ -21,6 +21,8 @@ const accountSchema = new Schema({
   phoneMasked: String,
   phoneEncrypted: { type: String, select: false },
   sessionEncrypted: { type: String, select: false },
+  loginPhoneCodeHashEncrypted: { type: String, select: false },
+  loginStep: { type: String, enum: ['code', 'password', null], default: null },
   apiId: { type: Number, required: true },
   apiHashEncrypted: { type: String, select: false, required: true },
   status: { type: String, enum: ['pending', 'connected', 'paused', 'error', 'removed'], default: 'pending' },
