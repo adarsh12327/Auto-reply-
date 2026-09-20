@@ -98,9 +98,8 @@ async function startDmCampaign(ctx, campaign) {
           progressText(updated, processed, total),
           keyboard
         );
-      } catch (error) {
-        const message = String(error?.description || error?.message || '');
-        if (!message.includes('message is not modified')) throw error;
+      } catch {
+        // Progress UI must never interrupt the actual campaign.
       }
     }
   }).catch(async error => {
