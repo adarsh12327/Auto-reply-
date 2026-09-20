@@ -22,3 +22,19 @@ export const autoReplyKeyboard = enabled => Markup.inlineKeyboard([
   [Markup.button.callback('🗑️ Clear Reply', 'auto_reply_clear')],
   [Markup.button.callback('⬅️ Back to Home', 'main_menu')]
 ]);
+
+export const dmDraftKeyboard = campaignId => Markup.inlineKeyboard([
+  [Markup.button.callback('▶️ Send DM', 'dm_send:' + campaignId)],
+  [Markup.button.callback('✏️ Edit Message', 'dm_edit')],
+  [Markup.button.callback('⬅️ Back to Home', 'main_menu')]
+]);
+
+export const dmRunningKeyboard = campaignId => Markup.inlineKeyboard([
+  [Markup.button.callback('⏸️ Pause', 'dm_pause:' + campaignId), Markup.button.callback('🛑 Stop', 'dm_stop:' + campaignId)],
+  [Markup.button.callback('⬅️ Back to Home', 'main_menu')]
+]);
+
+export const dmPausedKeyboard = campaignId => Markup.inlineKeyboard([
+  [Markup.button.callback('▶️ Resume', 'dm_resume:' + campaignId), Markup.button.callback('🛑 Stop', 'dm_stop:' + campaignId)],
+  [Markup.button.callback('⬅️ Back to Home', 'main_menu')]
+]);
