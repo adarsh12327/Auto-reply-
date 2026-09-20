@@ -66,16 +66,28 @@ export async function runCampaign(
 
   runningCampaigns.add(id);
   try {
+    const isResume = campaign.status === 'paused';
+    const startIndex = isResume
+      ? Math.min(
+          targets.length,
+          Number(campaign.stats.sent || 0) +
+          Number(campaign.stats.failed || 0) +
+          Number(campaign.stats.skipped || 0)
+        )
+      : 0;
+
     campaign.status = 'running';
     campaign.stats.total = targets.length;
-    campaign.stats.sent = 0;
-    campaign.stats.failed = 0;
-    campaign.stats.skipped = 0;
+    if (!isResume) {
+      campaign.stats.sent = 0;
+      campaign.stats.failed = 0;
+      campaign.stats.skipped = 0;
+    }
     await campaign.save();
 
-    await onProgress?.(campaign, 0, targets.length);
+    await onProgress?.(campaign, startIndex, targets.length);
 
-    for (let index = 0; index < targets.length; index += 1) {
+    for (let index = startIndex; index < targets.length; index += 1) {
       const target = targets[index];
       const fresh = await Campaign.findById(campaignId).select('status');
       if (!fresh || fresh.status === 'cancelled' || fresh.status === 'paused') break;
