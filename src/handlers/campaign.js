@@ -18,7 +18,7 @@ import {
   pauseCampaign,
   cancelCampaign
 } from '../services/campaignService.js';
-import { listWritableGroups, listAllGroups, listPersonalDialogs } from '../services/telegramClient.js';
+import { listWritableGroups, listAllGroups, listPersonalDialogs, ensureAccountClient } from '../services/telegramClient.js';
 import { scanMenuKeyboard, scanListKeyboard } from '../bot/keyboards.js';
 
 const pendingDm = new Map();
@@ -219,15 +219,19 @@ async function startDmCampaign(ctx, campaign, config) {
   });
 }
 
-async function getConnectedAccount(ownerId) {
-  return Account.findOne({
+async function getConnectedAccount(ownerId, config) {
+  const account = await Account.findOne({
     ownerId,
     status: 'connected'
   });
+  if (!account) return null;
+
+  await ensureAccountClient(account._id, config.encryptionKey);
+  return account;
 }
 
 async function scanGroups(ownerId) {
-  const account = await getConnectedAccount(ownerId);
+  const account = await getConnectedAccount(ownerId, config);
   if (!account) throw new Error('Connect your Telegram account first.');
   const groups = await listWritableGroups(account._id);
   return { account, groups };
@@ -247,7 +251,7 @@ function groupListText(groups) {
 }
 
 async function startGroupCampaign(ctx, campaign, config) {
-  const account = await getConnectedAccount(ctx.from.id);
+  const account = await getConnectedAccount(ctx.from.id, config);
   if (!account) {
     await safeEdit(ctx, '❌ Connect your Telegram account first.', backKeyboard());
     return;
@@ -348,7 +352,7 @@ export function registerCampaignHandlers(bot, config) {
   bot.action('scan_personal', async ctx => {
     await ctx.answerCbQuery('Scanning personal chats...');
     try {
-      const account = await getConnectedAccount(ctx.from.id);
+      const account = await getConnectedAccount(ctx.from.id, config);
       if (!account) return safeEdit(ctx, '❌ Connect your Telegram account first.', backKeyboard());
 
       const peers = await listPersonalDialogs(account._id);
@@ -368,7 +372,7 @@ ${error.message}`, backKeyboard());
   bot.action('scan_groups', async ctx => {
     await ctx.answerCbQuery('Scanning groups...');
     try {
-      const account = await getConnectedAccount(ctx.from.id);
+      const account = await getConnectedAccount(ctx.from.id, config);
       if (!account) return safeEdit(ctx, '❌ Connect your Telegram account first.', backKeyboard());
 
       const peers = await listAllGroups(account._id);
@@ -577,7 +581,7 @@ ${error.message}`, backKeyboard());
       return ctx.reply('Usage: /campaign dm|group|channel TARGET_ID MESSAGE');
     }
 
-    const account = await getConnectedAccount(ctx.from.id);
+    const account = await getConnectedAccount(ctx.from.id, config);
     if (!account) return ctx.reply('❌ Connect your Telegram account first.');
     if (message.length > config.maxMessageLength) return ctx.reply('❌ Message is too long.');
 
@@ -635,7 +639,7 @@ ${error.message}`, backKeyboard());
     pendingDm.delete(ctx.from.id);
     pendingGroup.delete(ctx.from.id);
 
-    const account = await getConnectedAccount(ctx.from.id);
+    const account = await getConnectedAccount(ctx.from.id, config);
     if (!account) return ctx.reply('❌ Connect your Telegram account first.');
     if (text.length > config.maxMessageLength) return ctx.reply('❌ Message is too long.');
 
