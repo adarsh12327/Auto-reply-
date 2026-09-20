@@ -192,7 +192,28 @@ export function registerAccountHandlers(bot, config) {
 
       let account;
       try {
-        account = await Account.create(data);
+        account = await Account.findOne({
+          ownerId: ctx.from.id,
+          phoneMasked: data.phoneMasked
+        });
+
+        if (account && account.status === 'connected') {
+          await ctx.reply('❌ This phone number is already connected. Use Accounts → Logout first.');
+          pending.delete(ctx.from.id);
+          return;
+        }
+
+        if (!account) {
+          account = await Account.create(data);
+        } else {
+          account.phoneEncrypted = data.phoneEncrypted;
+          account.apiId = data.apiId;
+          account.apiHashEncrypted = data.apiHashEncrypted;
+          account.status = 'pending';
+          account.loginStep = 'code';
+          account.lastError = '';
+          await account.save();
+        }
       } catch (error) {
         if (error?.code === 11000) {
           await ctx.reply('❌ This phone number is already added to your account.');
