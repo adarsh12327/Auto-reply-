@@ -9,15 +9,15 @@ const config = loadConfig();
 await connectDb(config.mongoUri);
 logger.info('MongoDB connected');
 
-const accounts = await Account.find({ status: 'connected' }).select('+sessionEncrypted');
+const accounts = await Account.find({ status: 'connected' })
+  .select('+sessionEncrypted +apiHashEncrypted +phoneEncrypted');
+
 logger.info('Loading connected accounts', { count: accounts.length });
 
 for (const account of accounts) {
   try {
     const client = await createUserClient({
       account,
-      apiId: account.apiId || config.telegramApiId,
-      apiHash: config.telegramApiHash,
       encryptionKey: config.encryptionKey
     });
     await attachAutoReply(account, client);
