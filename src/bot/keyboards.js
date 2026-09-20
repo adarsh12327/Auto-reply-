@@ -32,12 +32,27 @@ export const dmMenuKeyboard = () => Markup.inlineKeyboard([
   [Markup.button.callback('⬅️ Back to Home', 'main_menu')]
 ]);
 
-export const dmAudienceKeyboard = () => Markup.inlineKeyboard([
-  [Markup.button.callback('➕ Add Recipient', 'dm_recipient_add')],
-  [Markup.button.callback('➖ Remove Recipient', 'dm_recipient_remove')],
-  [Markup.button.callback('🔄 Refresh', 'dm_audience')],
-  [Markup.button.callback('⬅️ Back to Home', 'main_menu')]
-]);
+export const dmAudienceKeyboard = recipients => {
+  const rows = [
+    [Markup.button.callback('🔎 Auto Scan Authorized', 'dm_scan')],
+    [Markup.button.callback('🔄 Refresh', 'dm_audience')]
+  ];
+
+  if (Array.isArray(recipients)) {
+    for (const recipient of recipients.slice(0, 20)) {
+      const id = String(recipient.recipientId);
+      rows.push([
+        Markup.button.callback(
+          '🗑️ Remove ' + id,
+          'dm_recipient_remove:' + id
+        )
+      ]);
+    }
+  }
+
+  rows.push([Markup.button.callback('⬅️ Back to Home', 'main_menu')]);
+  return Markup.inlineKeyboard(rows);
+};
 
 export const dmDraftKeyboard = campaignId => Markup.inlineKeyboard([
   [Markup.button.callback('▶️ Send DM', 'dm_send:' + campaignId)],
