@@ -49,6 +49,17 @@ const consentSchema = new Schema({
 });
 consentSchema.index({ ownerId: 1, recipientId: 1 }, { unique: true });
 
+const scannedPeerSchema = new Schema({
+  ownerId: { type: Number, index: true, required: true },
+  accountId: { type: Schema.Types.ObjectId, index: true, required: true },
+  peerId: { type: String, required: true },
+  type: { type: String, enum: ['personal', 'group'], required: true },
+  name: { type: String, default: '' },
+  username: { type: String, default: '' },
+  lastSeenAt: { type: Date, default: Date.now }
+}, { timestamps: true });
+scannedPeerSchema.index({ ownerId: 1, accountId: 1, peerId: 1 }, { unique: true });
+
 const campaignSchema = new Schema({
   ownerId: { type: Number, index: true, required: true },
   accountId: { type: Schema.Types.ObjectId, required: true },
@@ -76,6 +87,7 @@ export const Account = mongoose.model('Account', accountSchema);
 export const ReplyLog = mongoose.model('ReplyLog', replyLogSchema);
 export const Consent = mongoose.model('Consent', consentSchema);
 export const Campaign = mongoose.model('Campaign', campaignSchema);
+export const ScannedPeer = mongoose.model('ScannedPeer', scannedPeerSchema);
 export const Setting = mongoose.model('Setting', settingSchema);
 
 export async function connectDb(uri) {
