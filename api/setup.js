@@ -10,15 +10,15 @@ export default async function handler(req, res) {
     const botToken = process.env.BOT_TOKEN;
     if (!botToken) throw new Error('BOT_TOKEN is not configured in Vercel');
 
-    const baseUrl = process.env.WEBHOOK_URL
-      ? process.env.WEBHOOK_URL.replace(/\/$/, '')
-      : 'https://' + process.env.VERCEL_URL;
+    // Always prefer the stable production alias. VERCEL_URL can point to
+    // an individual deployment URL, which would make Telegram stay pinned
+    // to an old deployment after the next redeploy.
+    const productionHost =
+      process.env.WEBHOOK_URL?.replace(/^https?:\/\//, '').replace(/\/$/, '') ||
+      process.env.VERCEL_PROJECT_PRODUCTION_URL ||
+      'auto-reply-adarsh-patels-projects-6a25ba02.vercel.app';
 
-    if (!baseUrl || baseUrl === 'https://undefined') {
-      throw new Error('VERCEL_URL or WEBHOOK_URL is not available');
-    }
-
-    const webhookUrl = baseUrl + '/api/webhook';
+    const webhookUrl = 'https://' + productionHost + '/api/webhook';
     const bot = new Telegraf(botToken);
 
     await bot.telegram.setWebhook(webhookUrl, {
