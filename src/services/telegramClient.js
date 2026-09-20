@@ -272,3 +272,28 @@ export async function listPersonalDialogs(accountId) {
 
   return peers;
 }
+
+
+export async function listAllGroups(accountId) {
+  const client = getClient(accountId);
+  if (!client?.connected) throw new Error('Telegram account is not connected');
+
+  const groups = [];
+  for await (const dialog of client.iterDialogs({})) {
+    const entity = dialog.entity;
+    if (!entity) continue;
+
+    const isBasicGroup = entity instanceof Api.Chat;
+    const isSupergroup = entity instanceof Api.Channel && Boolean(entity.megagroup);
+    if (!isBasicGroup && !isSupergroup) continue;
+
+    groups.push({
+      id: String(entity.id),
+      name: String(dialog.title || entity.title || 'Untitled group'),
+      username: entity.username ? String(entity.username) : '',
+      type: 'group'
+    });
+  }
+
+  return groups;
+}
