@@ -8,6 +8,7 @@ import { logger } from '../logger.js';
 
 const clients = new Map();
 const autoReplyAttached = new Set();
+const AUTO_REPLY_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 
 function key(accountId) {
   return String(accountId);
@@ -79,6 +80,34 @@ export async function createUserClient({ account, encryptionKey, onLoginCode }) 
   return client;
 }
 
+async function claimAutoReplySlot(accountId, peerId) {
+  const now = new Date();
+  const cutoff = new Date(now.getTime() - AUTO_REPLY_COOLDOWN_MS);
+
+  const claimed = await ReplyLog.findOneAndUpdate(
+    {
+      accountId,
+      peerId,
+      $or: [
+        { repliedAt: { $lte: cutoff } },
+        { repliedAt: { $exists: false } }
+      ]
+    },
+    { $set: { repliedAt: now } },
+    { new: true }
+  );
+
+  if (claimed) return true;
+
+  try {
+    await ReplyLog.create({ accountId, peerId, repliedAt: now });
+    return true;
+  } catch (error) {
+    if (error?.code === 11000) return false;
+    throw error;
+  }
+}
+
 export async function attachAutoReply(account, client) {
   const id = key(account._id);
   if (autoReplyAttached.has(id)) return;
@@ -93,6 +122,12 @@ export async function attachAutoReply(account, client) {
     if (!senderId) return;
 
     try {
+      const sender = await message.getSender();
+      if (!(sender instanceof Api.User) || sender.bot || sender.self) return;
+
+      // Reply only when Telegram explicitly reports the sender as offline.
+      if (!(sender.status instanceof Api.UserStatusOffline)) return;
+
       await Consent.findOneAndUpdate(
         { ownerId: account.ownerId, recipientId: senderId },
         {
@@ -105,57 +140,41 @@ export async function attachAutoReply(account, client) {
         },
         { upsert: true }
       );
+
+      const current = await Account.findById(account._id)
+        .select('ownerId status autoReplyEnabled autoReplyText')
+        .lean();
+
+      if (
+        !current ||
+        current.status !== 'connected' ||
+        !current.autoReplyEnabled ||
+        !current.autoReplyText
+      ) {
+        return;
+      }
+
+      const claimed = await claimAutoReplySlot(account._id, senderId);
+      if (!claimed) return;
+
+      try {
+        await client.sendMessage(sender, {
+          message: current.autoReplyText
+        });
+      } catch (error) {
+        await ReplyLog.deleteOne({
+          accountId: account._id,
+          peerId: senderId
+        }).catch(() => {});
+
+        logger.error('Auto-reply send failed', {
+          accountId: id,
+          peerId: senderId,
+          error: error?.message
+        });
+      }
     } catch (error) {
-      logger.warn('Failed to record DM consent', {
-        accountId: id,
-        recipientId: senderId,
-        error: error?.message
-      });
-    }
-
-    const current = await Account.findById(account._id)
-      .select('ownerId status autoReplyEnabled autoReplyText')
-      .lean();
-
-    if (
-      !current ||
-      current.status !== 'connected' ||
-      !current.autoReplyEnabled ||
-      !current.autoReplyText
-    ) {
-      return;
-    }
-
-    try {
-      await ReplyLog.create({
-        accountId: account._id,
-        peerId: senderId
-      });
-    } catch (error) {
-      if (error?.code === 11000) return;
-
-      logger.warn('Failed to create auto-reply log', {
-        accountId: id,
-        peerId: senderId,
-        error: error?.message
-      });
-      return;
-    }
-
-    try {
-      const sender = await message.getSender();
-      if (!sender) throw new Error('Could not resolve the message sender');
-
-      await client.sendMessage(sender, {
-        message: current.autoReplyText
-      });
-    } catch (error) {
-      await ReplyLog.deleteOne({
-        accountId: account._id,
-        peerId: senderId
-      });
-
-      logger.error('Auto-reply send failed', {
+      logger.warn('Auto-reply handler failed', {
         accountId: id,
         peerId: senderId,
         error: error?.message
