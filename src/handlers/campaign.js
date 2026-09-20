@@ -220,14 +220,38 @@ async function startDmCampaign(ctx, campaign, config) {
 }
 
 async function getConnectedAccount(ownerId, config) {
-  const account = await Account.findOne({
-    ownerId,
-    status: 'connected'
-  });
-  if (!account) return null;
+  // Do not trust the persisted status alone. Vercel/serverless instances do not
+  // share the in-memory GramJS client, so every scan must be able to restore
+  // the account from its encrypted session stored in MongoDB.
+  const accounts = await Account.find({ ownerId })
+    .sort({ status: 1, updatedAt: -1 });
 
-  await ensureAccountClient(account._id, config.encryptionKey);
-  return account;
+  if (!accounts.length) return null;
+
+  let lastError = null;
+
+  for (const account of accounts) {
+    try {
+      await ensureAccountClient(account._id, config.encryptionKey);
+      return account;
+    } catch (error) {
+      lastError = error;
+      console.warn('Telegram account restore failed', {
+        accountId: String(account._id),
+        status: account.status,
+        error: error?.message
+      });
+    }
+  }
+
+  if (lastError) {
+    throw new Error(
+      'Telegram account could not be restored. ' +
+      (lastError.message || 'Reconnect the account from Accounts.')
+    );
+  }
+
+  return null;
 }
 
 async function scanGroups(ownerId, config) {
