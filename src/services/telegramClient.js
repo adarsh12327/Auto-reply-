@@ -3,7 +3,7 @@ import { StringSession } from 'telegram/sessions/index.js';
 import { NewMessage } from 'telegram/events/index.js';
 import { Api } from 'telegram';
 import { encryptText, decryptText } from '../crypto.js';
-import { Account, ReplyLog } from '../db.js';
+import { Account, ReplyLog, Consent } from '../db.js';
 import { logger } from '../logger.js';
 
 const clients = new Map();
@@ -67,8 +67,28 @@ export async function attachAutoReply(account, client) {
     const message = event.message;
     if (!message?.isPrivate) return;
 
-    // Always read the latest settings from MongoDB. This prevents the
-    // running Telegram client from using stale auto-reply values.
+    const senderId = message.senderId == null ? null : String(message.senderId);
+    if (!senderId) return;
+
+    // A user who directly messages the connected account has initiated contact.
+    // Record that interaction as an active, revocable authorization for campaigns.
+    try {
+      await Consent.findOneAndUpdate(
+        { ownerId: account.ownerId, recipientId: senderId },
+        {
+          $set: { active: true, source: 'user_reply', revokedAt: null },
+          $setOnInsert: { createdAt: new Date() }
+        },
+        { upsert: true }
+      );
+    } catch (error) {
+      logger.warn('Failed to record DM consent', {
+        accountId: String(account._id),
+        recipientId: senderId,
+        error: error?.message
+      });
+    }
+
     const current = await Account.findById(account._id)
       .select('ownerId status autoReplyEnabled autoReplyText')
       .lean();
@@ -77,26 +97,27 @@ export async function attachAutoReply(account, client) {
       return;
     }
 
-    const peerId = String(message.senderId);
     try {
-      await ReplyLog.create({ accountId: account._id, peerId });
+      await ReplyLog.create({ accountId: account._id, peerId: senderId });
     } catch (error) {
-      // One reply per peer: the unique index makes this atomic.
       if (error?.code === 11000) return;
-      throw error;
+      logger.warn('Failed to create auto-reply log', {
+        accountId: String(account._id),
+        peerId: senderId,
+        error: error?.message
+      });
+      return;
     }
 
     try {
-      // Resolve the sender to a full Telegram entity before sending. The raw
-      // PeerUser from an update may not be present in GramJS's entity cache.
       const sender = await message.getSender();
       if (!sender) throw new Error('Could not resolve the message sender');
       await client.sendMessage(sender, { message: current.autoReplyText });
     } catch (error) {
-      await ReplyLog.deleteOne({ accountId: account._id, peerId });
+      await ReplyLog.deleteOne({ accountId: account._id, peerId: senderId });
       logger.error('Auto-reply send failed', {
         accountId: String(account._id),
-        peerId,
+        peerId: senderId,
         error: error?.message
       });
     }
