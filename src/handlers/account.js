@@ -17,12 +17,11 @@ async function deleteMessage(ctx) {
   }
 }
 
-function waitForLoginInput(userId, step, prompt) {
+async function waitForLoginInput(ctx, step, prompt) {
+  await ctx.reply(prompt + '\n\n/cancel to stop.');
   return new Promise((resolve, reject) => {
-    pending.set(userId, { step, resolve, reject });
-    pending.get(userId).prompt = prompt;
+    pending.set(ctx.from.id, { step, resolve, reject });
   });
-}
 
 export function registerAccountHandlers(bot, config) {
   bot.action('add_account', async ctx => {
@@ -111,7 +110,7 @@ export function registerAccountHandlers(bot, config) {
             const prompt = type === 'code'
               ? '📩 Enter the Telegram login code you received:'
               : '🔑 Enter your Telegram 2-step verification password:';
-            return waitForLoginInput(ctx.from.id, type, prompt).then(async value => {
+            return waitForLoginInput(ctx, type, prompt).then(async value => {
               await ctx.reply(type === 'code' ? 'Code received. Checking…' : 'Password received. Checking…');
               return value;
             });
