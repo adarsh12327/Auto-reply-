@@ -113,7 +113,10 @@ async function showAudience(ctx) {
 }
 
 async function startDmCampaign(ctx, campaign, config) {
-  const targets = await getAuthorizedDmTargets(ctx.from.id);
+  const isResume = campaign.status === 'paused';
+  const targets = isResume
+    ? (Array.isArray(campaign.targetIds) ? campaign.targetIds.map(String) : [])
+    : await getAuthorizedDmTargets(ctx.from.id);
 
   if (!targets.length) {
     await safeEdit(
@@ -215,11 +218,16 @@ async function startGroupCampaign(ctx, campaign, config) {
     return;
   }
 
-  let targets;
-  try {
-    const groups = await listWritableGroups(account._id);
-    targets = groups.map(group => group.id);
-  } catch (error) {
+  const isResume = campaign.status === 'paused';
+  let targets = isResume
+    ? (Array.isArray(campaign.targetIds) ? campaign.targetIds.map(String) : [])
+    : null;
+
+  if (!isResume) {
+    try {
+      const groups = await listWritableGroups(account._id);
+      targets = groups.map(group => group.id);
+    } catch (error) {
     await safeEdit(ctx, `❌ Group scan failed\n\n${error.message}`, backKeyboard());
     return;
   }
