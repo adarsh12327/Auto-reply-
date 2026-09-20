@@ -5,35 +5,55 @@ export async function startHandler(ctx) {
   const telegramId = ctx.from.id;
   const payload = ctx.startPayload || '';
 
-  let user = await User.findOne({ telegramId });
+  await User.findOneAndUpdate(
+    { telegramId },
+    {
+      $set: {
+        username: ctx.from.username,
+        firstName: ctx.from.first_name,
+        lastSeenAt: new Date()
+      },
+      $setOnInsert: {
+        telegramId,
+        subscribed: false,
+        blocked: false,
+        referrals: 0,
+        referralEarned: 0
+      }
+    },
+    { upsert: true }
+  );
 
-  if (!user) {
-    user = await User.create({
-      telegramId,
-      username: ctx.from.username,
-      firstName: ctx.from.first_name
-    });
-  } else {
-    user.username = ctx.from.username;
-    user.firstName = ctx.from.first_name;
-    user.lastSeenAt = new Date();
-    await user.save();
-  }
-
-  if (payload.startsWith('ref_') && !user.referrerId) {
+  if (payload.startsWith('ref_')) {
     const referrerId = Number(payload.slice(4));
 
     if (Number.isSafeInteger(referrerId) && referrerId !== telegramId) {
-      const referrer = await User.findOne({ telegramId: referrerId });
+      const updated = await User.findOneAndUpdate(
+        {
+          telegramId,
+          $or: [
+            { referrerId: null },
+            { referrerId: { $exists: false } }
+          ]
+        },
+        { $set: { referrerId } },
+        { new: true }
+      );
 
-      if (referrer) {
-        user.referrerId = referrerId;
-        await user.save();
+      if (updated) {
+        const referrer = await User.findOne({ telegramId: referrerId }).select('_id').lean();
 
-        await User.updateOne(
-          { telegramId: referrerId },
-          { $inc: { referrals: 1 } }
-        );
+        if (referrer) {
+          await User.updateOne(
+            { telegramId: referrerId },
+            { $inc: { referrals: 1 } }
+          );
+        } else {
+          await User.updateOne(
+            { telegramId },
+            { $set: { referrerId: null } }
+          );
+        }
       }
     }
   }
