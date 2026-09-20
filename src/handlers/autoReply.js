@@ -43,8 +43,15 @@ export function registerAutoReplyHandlers(bot) {
     pendingReply.set(ctx.from.id, { messageId: ctx.callbackQuery.message.message_id });
     await ctx.editMessageText(
       '✏️ Set Auto Reply\n\nSend the message you want your Telegram account to automatically send as its first reply.\n\n/cancel to stop.',
-      { reply_markup: { inline_keyboard: [[{ text: '⬅️ Back to Auto Reply', callback_data: 'auto_reply' }]] } }
+      { reply_markup: { inline_keyboard: [[{ text: '⬅️ Back to Home', callback_data: 'auto_reply_cancel' }]] } }
     );
+  });
+
+  bot.action('auto_reply_cancel', async ctx => {
+    await ctx.answerCbQuery();
+    pendingReply.delete(ctx.from.id);
+    const { mainKeyboard } = await import('../bot/keyboards.js');
+    await ctx.editMessageText('🏠 Main Menu', mainKeyboard());
   });
 
   bot.action('auto_reply_on', async ctx => {
