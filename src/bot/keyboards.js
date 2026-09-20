@@ -4,6 +4,7 @@ export const mainKeyboard = () => Markup.inlineKeyboard([
   [Markup.button.callback('🤖 Auto Reply', 'auto_reply'), Markup.button.callback('👤 Accounts', 'accounts')],
   [Markup.button.callback('📩 DM Campaign', 'campaign_dm'), Markup.button.callback('👥 Group Promo', 'campaign_group')],
   [Markup.button.callback('📢 Channel Promo', 'campaign_channel')],
+  [Markup.button.callback('🔎 Scan', 'scan_menu')],
   [Markup.button.callback('👥 Refer & Earn', 'referrals'), Markup.button.callback('⭐ Premium', 'premium')],
   [Markup.button.callback('🎁 Redeem Code', 'redeem'), Markup.button.callback('📊 Statistics', 'stats')],
   [Markup.button.callback('➕ Add Account', 'add_account')],
@@ -122,5 +123,17 @@ export const groupPausedKeyboard = campaignId => Markup.inlineKeyboard([
     Markup.button.callback('▶️ Resume', 'group_resume:' + campaignId),
     Markup.button.callback('🛑 Stop', 'group_stop:' + campaignId)
   ],
+  [Markup.button.callback('⬅️ Back to Home', 'main_menu')]
+]);
+
+
+export const scanMenuKeyboard = () => Markup.inlineKeyboard([
+  [Markup.button.callback('👤 Personal Account', 'scan_personal')],
+  [Markup.button.callback('👥 Groups', 'scan_groups')],
+  [Markup.button.callback('⬅️ Back to Home', 'main_menu')]
+]);
+
+export const scanListKeyboard = type => Markup.inlineKeyboard([
+  [Markup.button.callback('🔄 Scan Again', type === 'personal' ? 'scan_personal' : 'scan_groups')],
   [Markup.button.callback('⬅️ Back to Home', 'main_menu')]
 ]);
