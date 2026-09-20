@@ -6,6 +6,7 @@ export async function startHandler(ctx) {
   const payload = ctx.startPayload || '';
 
   let user = await User.findOne({ telegramId });
+
   if (!user) {
     user = await User.create({
       telegramId,
@@ -19,11 +20,21 @@ export async function startHandler(ctx) {
     await user.save();
   }
 
-  if (payload.startsWith('ref_')) {
+  if (payload.startsWith('ref_') && !user.referrerId) {
     const referrerId = Number(payload.slice(4));
-    if (Number.isSafeInteger(referrerId) && referrerId !== telegramId && !user.referrerId) {
-      user.referrerId = referrerId;
-      await user.save();
+
+    if (Number.isSafeInteger(referrerId) && referrerId !== telegramId) {
+      const referrer = await User.findOne({ telegramId: referrerId });
+
+      if (referrer) {
+        user.referrerId = referrerId;
+        await user.save();
+
+        await User.updateOne(
+          { telegramId: referrerId },
+          { $inc: { referrals: 1 } }
+        );
+      }
     }
   }
 
