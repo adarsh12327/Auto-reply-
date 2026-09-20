@@ -210,6 +210,24 @@ export async function sendAuthorizedMessage(client, target, message) {
   await client.sendMessage(target, { message });
 }
 
+export async function ensureAccountClient(accountId, encryptionKey) {
+  const account = await Account.findById(accountId)
+    .select('+sessionEncrypted +apiHashEncrypted +phoneEncrypted');
+
+  if (!account) throw new Error('Telegram account not found');
+  if (account.status !== 'connected' && !account.sessionEncrypted) {
+    throw new Error('Telegram account is not connected');
+  }
+
+  const client = await createUserClient({
+    account,
+    encryptionKey
+  });
+
+  await attachAutoReply(account, client);
+  return client;
+}
+
 export function getClient(accountId) {
   return clients.get(key(accountId));
 }
