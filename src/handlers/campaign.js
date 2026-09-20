@@ -359,7 +359,9 @@ export function registerCampaignHandlers(bot, config) {
         scanListKeyboard('personal')
       );
     } catch (error) {
-      await safeEdit(ctx, `❌ Personal scan failed\\n\\n${error.message}`, backKeyboard());
+      await safeEdit(ctx, `❌ Personal scan failed
+
+${error.message}`, backKeyboard());
     }
   });
 
@@ -377,7 +379,9 @@ export function registerCampaignHandlers(bot, config) {
         scanListKeyboard('groups')
       );
     } catch (error) {
-      await safeEdit(ctx, `❌ Group scan failed\\n\\n${error.message}`, backKeyboard());
+      await safeEdit(ctx, `❌ Group scan failed
+
+${error.message}`, backKeyboard());
     }
   });
 
