@@ -49,10 +49,13 @@ async function finishLogin(account, config, code, password = null) {
     let me;
 
     if (password !== null) {
-      if (typeof client.checkPassword !== 'function') {
+      if (typeof client.signInWithPassword !== 'function') {
         throw new Error('This Telegram client version does not support 2-step verification login.');
       }
-      me = await client.checkPassword(password);
+      me = await client.signInWithPassword(
+        { apiId: account.apiId, apiHash },
+        { password }
+      );
     } else {
       try {
         me = await client.invoke(new Api.auth.SignIn({
@@ -107,10 +110,30 @@ export function registerAccountHandlers(bot, config) {
   });
 
   bot.on('text', async (ctx, next) => {
-    const state = pending.get(ctx.from.id);
-    if (!state) return next();
-
+    let state = pending.get(ctx.from.id);
     const text = ctx.message.text.trim();
+
+    // Vercel/serverless invocations do not guarantee that the in-memory
+    // pending map survives between Telegram updates. Recover an active
+    // login step from MongoDB so the login-code/password message is handled
+    // even when the next update reaches a fresh function instance.
+    if (!state) {
+      const account = await Account.findOne({
+        ownerId: ctx.from.id,
+        status: 'pending',
+        loginStep: { $in: ['code', 'password'] }
+      }).sort({ updatedAt: -1 });
+
+      if (account) {
+        state = {
+          step: account.loginStep,
+          accountId: account._id
+        };
+        pending.set(ctx.from.id, state);
+      }
+    }
+
+    if (!state) return next();
 
     if (text === '/cancel') {
       if (state.accountId) {
