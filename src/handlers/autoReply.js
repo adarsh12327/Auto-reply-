@@ -15,7 +15,7 @@ export function registerAutoReplyHandlers(bot) {
   bot.action('auto_reply', async ctx => {
     await ctx.answerCbQuery();
     const account = await getConnectedAccount(ctx.from.id);
-    await ctx.reply(
+    await ctx.editMessageText(
       account
         ? statusText(account) + '\n\nUse /autoreply_on, /autoreply_off or /setreply <message>.'
         : statusText(account),
