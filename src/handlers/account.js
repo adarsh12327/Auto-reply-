@@ -28,7 +28,7 @@ export function registerAccountHandlers(bot, config) {
   bot.action('add_account', async ctx => {
     await ctx.answerCbQuery();
     pending.set(ctx.from.id, { step: 'api_id' });
-    await ctx.reply(
+    await ctx.editMessageText(
       '🔐 Add Telegram Account\n\n' +
       '1/4 Send your Telegram API ID.\n' +
       'Get it from my.telegram.org → API development tools.\n\n' +
@@ -36,9 +36,9 @@ export function registerAccountHandlers(bot, config) {
     );
   });
 
-  bot.on('text', async ctx => {
+  bot.on('text', async (ctx, next) => {
     const state = pending.get(ctx.from.id);
-    if (!state) return;
+    if (!state) return next();
 
     const text = ctx.message.text.trim();
 
