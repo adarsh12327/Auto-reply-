@@ -1,5 +1,5 @@
-import { Telegraf } from 'telegraf';
-import { User, Account, Campaign } from '../db.js';
+import { Telegraf, Markup } from 'telegraf';
+import { User, Account, Campaign, Setting } from '../db.js';
 import { mainKeyboard, backKeyboard } from './keyboards.js';
 import { startHandler } from '../handlers/start.js';
 import { registerAccountHandlers } from '../handlers/account.js';
@@ -12,7 +12,9 @@ export function createBot(config) {
 
   bot.start(startHandler);
 
-  bot.command('menu', async ctx => ctx.reply('🏠 Main Menu', mainKeyboard()));
+  bot.command('menu', async ctx => {
+    await ctx.reply('🏠 Main Menu', mainKeyboard());
+  });
 
   bot.command('subscribe', async ctx => {
     await User.findOneAndUpdate(
@@ -23,7 +25,8 @@ export function createBot(config) {
           username: ctx.from.username,
           firstName: ctx.from.first_name,
           lastSeenAt: new Date()
-        }
+        },
+        $setOnInsert: { telegramId: ctx.from.id }
       },
       { upsert: true }
     );
@@ -33,7 +36,7 @@ export function createBot(config) {
   bot.command('unsubscribe', async ctx => {
     await User.findOneAndUpdate(
       { telegramId: ctx.from.id },
-      { $set: { subscribed: false, lastSeenAt: new Date() } },
+      { $set: { subscribed: false, lastSeenAt: new Date() }, $setOnInsert: { telegramId: ctx.from.id } },
       { upsert: true }
     );
     await ctx.reply('✅ Promotional updates disabled.');
@@ -46,77 +49,57 @@ export function createBot(config) {
 
   bot.action('accounts', async ctx => {
     await ctx.answerCbQuery();
-
-    const accounts = await Account.find({ ownerId: ctx.from.id })
-      .sort({ createdAt: -1 })
-      .lean();
-
+    const accounts = await Account.find({ ownerId: ctx.from.id }).sort({ createdAt: -1 }).lean();
     const text = accounts.length
       ? accounts.map((a, i) => {
           const icon = a.status === 'connected' ? '🟢' : a.status === 'error' ? '🔴' : '🟡';
-          return `${i + 1}. ${a.phoneMasked || 'Account'} — ${icon} ${a.status}`;
+          return (i + 1) + '. ' + (a.phoneMasked || 'Account') + ' — ' + icon + ' ' + a.status;
         }).join('\n')
       : 'No accounts connected yet.';
-
-    const keyboard = accounts.length
-      ? backKeyboard()
-      : {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: '➕ Add Account', callback_data: 'add_account' }],
-              [{ text: '⬅️ Back to Home', callback_data: 'main_menu' }]
-            ]
-          }
-        };
-
-    await ctx.editMessageText(
-      `👤 Accounts\n\n${text}`,
-      keyboard
-    );
+    const keyboard = Markup.inlineKeyboard([
+      [Markup.button.callback('➕ Add Account', 'add_account')],
+      [Markup.button.callback('⬅️ Back to Home', 'main_menu')]
+    ]);
+    await ctx.editMessageText('👤 Accounts\n\n' + text, keyboard);
   });
 
   bot.action('referrals', async ctx => {
     await ctx.answerCbQuery();
-
-    const user = await User.findOne({ telegramId: ctx.from.id }).lean();
-    const link = `https://t.me/${config.botUsername}?start=ref_${ctx.from.id}`;
-
+    const [user, setting] = await Promise.all([
+      User.findOne({ telegramId: ctx.from.id }).lean(),
+      Setting.findOne({ key: 'referral_percent' }).lean()
+    ]);
+    const referralPercent = setting?.value ?? config.referralPercent;
+    const link = 'https://t.me/' + config.botUsername + '?start=ref_' + ctx.from.id;
     await ctx.editMessageText(
-      `👥 Refer & Earn\n\nReferrals: ${user?.referrals || 0}\n💰 Earned: ₹${user?.referralEarned || 0}\n🎯 Referral rate: ${config.referralPercent}%\n\n🔗 Your referral link:\n${link}`,
+      '👥 Refer & Earn\n\nReferrals: ' + (user?.referrals || 0) + '\n💰 Earned: ₹' + (user?.referralEarned || 0) + '\n🎯 Referral rate: ' + referralPercent + '%\n\n🔗 Your referral link:\n' + link,
       backKeyboard()
     );
   });
 
   bot.action('premium', async ctx => {
     await ctx.answerCbQuery();
-    await ctx.editMessageText(
-      '⭐ Premium\n\nPremium plans will be connected to the payment module.',
-      backKeyboard()
-    );
+    await ctx.editMessageText('⭐ Premium\n\nPremium plans are not configured yet.', backKeyboard());
   });
 
   bot.action('redeem', async ctx => {
     await ctx.answerCbQuery();
-    await ctx.editMessageText(
-      '🎁 Redeem Code\n\nThe redeem-code management layer is ready to be connected.',
-      backKeyboard()
-    );
+    await ctx.editMessageText('🎁 Redeem Code\n\nRedeem-code management is not configured yet.', backKeyboard());
   });
 
   bot.action('stats', async ctx => {
     await ctx.answerCbQuery();
-
-    const [accounts, campaigns, sent] = await Promise.all([
+    const [accounts, campaigns, aggregate] = await Promise.all([
       Account.countDocuments({ ownerId: ctx.from.id }),
       Campaign.countDocuments({ ownerId: ctx.from.id }),
       Campaign.aggregate([
         { $match: { ownerId: ctx.from.id } },
-        { $group: { _id: null, total: { $sum: '$stats.sent' } } }
+        { $group: { _id: null, sent: { $sum: '$stats.sent' }, failed: { $sum: '$stats.failed' }, skipped: { $sum: '$stats.skipped' } } }
       ])
     ]);
-
+    const stats = aggregate[0] || { sent: 0, failed: 0, skipped: 0 };
     await ctx.editMessageText(
-      `📊 Statistics\n\nAccounts: ${accounts}\nCampaigns: ${campaigns}\nMessages sent: ${sent[0]?.total || 0}`,
+      '📊 Statistics\n\nAccounts: ' + accounts + '\nCampaigns: ' + campaigns + '\n\n📤 Sent: ' + (stats.sent || 0) + '\n❌ Failed: ' + (stats.failed || 0) + '\n⏭️ Skipped: ' + (stats.skipped || 0),
       backKeyboard()
     );
   });
@@ -124,9 +107,7 @@ export function createBot(config) {
   bot.action('support', async ctx => {
     await ctx.answerCbQuery();
     await ctx.editMessageText(
-      config.supportUrl
-        ? `🆘 Support\n\n${config.supportUrl}`
-        : '🆘 Support is not configured.',
+      config.supportUrl ? '🆘 Support\n\n' + config.supportUrl : '🆘 Support is not configured.',
       backKeyboard()
     );
   });
