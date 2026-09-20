@@ -1,5 +1,5 @@
 import { Campaign, Account, Consent } from '../db.js';
-import { mainKeyboard } from '../bot/keyboards.js';
+import { backKeyboard } from '../bot/keyboards.js';
 import { runCampaign } from '../services/campaignService.js';
 
 export function registerCampaignHandlers(bot, config) {
@@ -8,7 +8,7 @@ export function registerCampaignHandlers(bot, config) {
       await ctx.answerCbQuery();
       await ctx.editMessageText(
         `📢 ${type.toUpperCase()} campaign\n\nThis module supports authorized/consent-based recipients only.\n\nCreate via:\n/campaign ${type} TARGET_ID MESSAGE`,
-        mainKeyboard()
+        backKeyboard()
       );
     });
   }
