@@ -3,7 +3,7 @@ import { StringSession } from 'telegram/sessions/index.js';
 import { NewMessage } from 'telegram/events/index.js';
 import { Api } from 'telegram';
 import { encryptText, decryptText } from '../crypto.js';
-import { Account, ReplyLog } from '../db.js';
+import { ReplyLog } from '../db.js';
 import { logger } from '../logger.js';
 
 const clients = new Map();
@@ -12,33 +12,45 @@ function key(accountId) {
   return String(accountId);
 }
 
-export async function createUserClient({ account, apiId, apiHash, encryptionKey, onLoginCode }) {
+export async function createUserClient({ account, encryptionKey, onLoginCode }) {
   const existing = clients.get(key(account._id));
   if (existing) return existing;
 
-  let session = '';
-  if (account.sessionEncrypted) session = decryptText(account.sessionEncrypted, encryptionKey);
+  if (!account.apiId || !account.apiHashEncrypted) {
+    throw new Error('Account API credentials are missing');
+  }
 
-  const client = new TelegramClient(new StringSession(session), apiId, apiHash, {
+  const apiHash = decryptText(account.apiHashEncrypted, encryptionKey);
+  const phone = account.phoneEncrypted ? decryptText(account.phoneEncrypted, encryptionKey) : null;
+  if (!phone) throw new Error('Account phone is missing');
+
+  let session = '';
+  if (account.sessionEncrypted) {
+    session = decryptText(account.sessionEncrypted, encryptionKey);
+  }
+
+  const client = new TelegramClient(new StringSession(session), account.apiId, apiHash, {
     connectionRetries: 5
   });
 
-  await client.connect();
-
-  if (onLoginCode) {
+  if (!session) {
+    if (!onLoginCode) throw new Error('Account is not authenticated');
     await client.start({
-      phoneNumber: async () => account.phone,
+      phoneNumber: async () => phone,
       phoneCode: async () => onLoginCode('code'),
       password: async () => onLoginCode('password'),
       onError: err => logger.error('Telegram login error', { error: err.message })
     });
+  } else {
+    await client.connect();
   }
 
   account.sessionEncrypted = encryptText(client.session.save(), encryptionKey);
   account.telegramUserId = Number((await client.getMe()).id);
   account.status = 'connected';
-  account.connectedAt = new Date();
+  account.connectedAt = account.connectedAt || new Date();
   account.lastError = '';
+  account.lastSeenAt = new Date();
   await account.save();
 
   clients.set(key(account._id), client);
