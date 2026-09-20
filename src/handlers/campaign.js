@@ -18,7 +18,8 @@ import {
   pauseCampaign,
   cancelCampaign
 } from '../services/campaignService.js';
-import { listWritableGroups, listPersonalDialogs } from '../services/telegramClient.js';
+import { listWritableGroups, listAllGroups, listPersonalDialogs } from '../services/telegramClient.js';
+import { scanMenuKeyboard, scanListKeyboard } from '../bot/keyboards.js';
 
 const pendingDm = new Map();
 const pendingGroup = new Map();
@@ -340,7 +341,7 @@ export function registerCampaignHandlers(bot, config) {
     await ctx.answerCbQuery();
     await ctx.editMessageText(
       '🔎 Telegram Scanner\n\nChoose what you want to scan.',
-      (await import('../bot/keyboards.js')).scanMenuKeyboard()
+      scanMenuKeyboard()
     );
   });
 
@@ -355,7 +356,7 @@ export function registerCampaignHandlers(bot, config) {
       await safeEdit(
         ctx,
         scannedListText('Personal Account', peers),
-        (await import('../bot/keyboards.js')).scanListKeyboard('personal')
+        scanListKeyboard('personal')
       );
     } catch (error) {
       await safeEdit(ctx, `❌ Personal scan failed\\n\\n${error.message}`, backKeyboard());
@@ -368,12 +369,12 @@ export function registerCampaignHandlers(bot, config) {
       const account = await getConnectedAccount(ctx.from.id);
       if (!account) return safeEdit(ctx, '❌ Connect your Telegram account first.', backKeyboard());
 
-      const peers = await listWritableGroups(account._id);
+      const peers = await listAllGroups(account._id);
       await saveScannedPeers(ctx.from.id, account._id, peers);
       await safeEdit(
         ctx,
         scannedListText('Groups', peers),
-        (await import('../bot/keyboards.js')).scanListKeyboard('groups')
+        scanListKeyboard('groups')
       );
     } catch (error) {
       await safeEdit(ctx, `❌ Group scan failed\\n\\n${error.message}`, backKeyboard());
