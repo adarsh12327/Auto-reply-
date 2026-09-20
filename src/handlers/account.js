@@ -7,6 +7,10 @@ import { createUserClient, attachAutoReply } from '../services/telegramClient.js
 
 const pending = new Map();
 
+export function cancelPendingLogin(userId) {
+  pending.delete(Number(userId));
+}
+
 function maskPhone(phone) {
   return phone.replace(/^(\+?\d{2})\d+(\d{3})$/, '$1••••$2');
 }
