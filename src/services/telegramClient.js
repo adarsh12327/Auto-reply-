@@ -7,6 +7,7 @@ import { Account, ReplyLog } from '../db.js';
 import { logger } from '../logger.js';
 
 const clients = new Map();
+const autoReplyAttached = new Set();
 
 function key(accountId) {
   return String(accountId);
@@ -58,6 +59,10 @@ export async function createUserClient({ account, encryptionKey, onLoginCode }) 
 }
 
 export async function attachAutoReply(account, client) {
+  const id = key(account._id);
+  if (autoReplyAttached.has(id)) return;
+  autoReplyAttached.add(id);
+
   client.addEventHandler(async event => {
     const message = event.message;
     if (!message?.isPrivate) return;
@@ -118,9 +123,11 @@ export function getClient(accountId) {
 }
 
 export async function disconnectAccount(accountId) {
-  const client = clients.get(key(accountId));
+  const id = key(accountId);
+  autoReplyAttached.delete(id);
+  const client = clients.get(id);
   if (client) {
     await client.disconnect();
-    clients.delete(key(accountId));
+    clients.delete(id);
   }
 }
