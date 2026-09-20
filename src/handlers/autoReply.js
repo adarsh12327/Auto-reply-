@@ -85,7 +85,19 @@ export function registerAutoReplyHandlers(bot) {
 
     if (text === '/cancel') {
       pendingReply.delete(ctx.from.id);
-      await ctx.reply('❌ Cancelled. Open Auto Reply again to continue.');
+      const account = await getConnectedAccount(ctx.from.id);
+      try {
+        await ctx.telegram.editMessageText(
+          ctx.chat.id,
+          state.messageId,
+          undefined,
+          account ? statusText(account) : '❌ Connect a Telegram account first.',
+          autoReplyKeyboard(Boolean(account?.autoReplyEnabled))
+        );
+      } catch (error) {
+        const message = String(error?.description || error?.message || '');
+        if (!message.includes('message is not modified')) throw error;
+      }
       return;
     }
 
@@ -105,6 +117,23 @@ export function registerAutoReplyHandlers(bot) {
     account.autoReplyText = text.slice(0, 4096);
     await account.save();
 
-    await ctx.reply('✅ Auto-reply message saved. Open Auto Reply to review it.');
+    try {
+      await ctx.deleteMessage();
+    } catch {
+      // Best effort only.
+    }
+
+    try {
+      await ctx.telegram.editMessageText(
+        ctx.chat.id,
+        state.messageId,
+        undefined,
+        statusText(account),
+        autoReplyKeyboard(Boolean(account.autoReplyEnabled))
+      );
+    } catch (error) {
+      const message = String(error?.description || error?.message || '');
+      if (!message.includes('message is not modified')) throw error;
+    }
   });
 }
