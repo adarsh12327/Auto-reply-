@@ -3,7 +3,7 @@ import { StringSession } from 'telegram/sessions/index.js';
 import { NewMessage } from 'telegram/events/index.js';
 import { Api } from 'telegram';
 import { encryptText, decryptText } from '../crypto.js';
-import { ReplyLog } from '../db.js';
+import { Account, ReplyLog } from '../db.js';
 import { logger } from '../logger.js';
 
 const clients = new Map();
@@ -60,21 +60,36 @@ export async function createUserClient({ account, encryptionKey, onLoginCode }) 
 export async function attachAutoReply(account, client) {
   client.addEventHandler(async event => {
     const message = event.message;
-    if (!message?.isPrivate || !account.autoReplyEnabled || !account.autoReplyText) return;
+    if (!message?.isPrivate) return;
+
+    // Always read the latest settings from MongoDB. This prevents the
+    // running Telegram client from using stale auto-reply values.
+    const current = await Account.findById(account._id)
+      .select('ownerId status autoReplyEnabled autoReplyText')
+      .lean();
+
+    if (!current || current.status !== 'connected' || !current.autoReplyEnabled || !current.autoReplyText) {
+      return;
+    }
 
     const peerId = String(message.senderId);
     try {
       await ReplyLog.create({ accountId: account._id, peerId });
     } catch (error) {
+      // One reply per peer: the unique index makes this atomic.
       if (error?.code === 11000) return;
       throw error;
     }
 
     try {
-      await client.sendMessage(message.peerId, { message: account.autoReplyText });
+      await client.sendMessage(message.peerId, { message: current.autoReplyText });
     } catch (error) {
       await ReplyLog.deleteOne({ accountId: account._id, peerId });
-      throw error;
+      logger.error('Auto-reply send failed', {
+        accountId: String(account._id),
+        peerId,
+        error: error?.message
+      });
     }
   }, new NewMessage({ incoming: true }));
 }
