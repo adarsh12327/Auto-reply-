@@ -1,6 +1,6 @@
 import { Telegraf } from 'telegraf';
 import { User } from '../db.js';
-import { mainKeyboard } from './keyboards.js';
+import { mainKeyboard, backKeyboard } from './keyboards.js';
 import { startHandler } from '../handlers/start.js';
 import { registerAccountHandlers } from '../handlers/account.js';
 import { registerAutoReplyHandlers } from '../handlers/autoReply.js';
@@ -33,17 +33,17 @@ export function createBot(config) {
     const text = accounts.length
       ? accounts.map((a, i) => `${i + 1}. ${a.phoneMasked || 'Account'} — ${a.status}`).join('\n')
       : 'No accounts connected yet.';
-    await ctx.editMessageText(`👤 Accounts\n\n${text}`, mainKeyboard());
+    await ctx.editMessageText(`👤 Accounts\n\n${text}`, backKeyboard());
   });
 
   bot.action('referrals', async ctx => {
     await ctx.answerCbQuery();
     const user = await User.findOne({ telegramId: ctx.from.id });
-    await ctx.editMessageText(`👥 Refer & Earn\n\nReferrals: ${user?.referrals || 0}\n💰 Earned: ₹${user?.referralEarned || 0}\n\nhttps://t.me/${config.botUsername}?start=ref_${ctx.from.id}`, mainKeyboard());
+    await ctx.editMessageText(`👥 Refer & Earn\n\nReferrals: ${user?.referrals || 0}\n💰 Earned: ₹${user?.referralEarned || 0}\n\nhttps://t.me/${config.botUsername}?start=ref_${ctx.from.id}`, backKeyboard());
   });
 
-  bot.action('premium', async ctx => { await ctx.answerCbQuery(); await ctx.editMessageText('⭐ Premium\n\nPremium plans will be connected to the payment module.', mainKeyboard()); });
-  bot.action('redeem', async ctx => { await ctx.answerCbQuery(); await ctx.editMessageText('🎁 Redeem Code\n\nThe redeem-code management layer is ready to be connected.', mainKeyboard()); });
+  bot.action('premium', async ctx => { await ctx.answerCbQuery(); await ctx.editMessageText('⭐ Premium\n\nPremium plans will be connected to the payment module.', backKeyboard()); });
+  bot.action('redeem', async ctx => { await ctx.answerCbQuery(); await ctx.editMessageText('🎁 Redeem Code\n\nThe redeem-code management layer is ready to be connected.', backKeyboard()); });
   bot.action('stats', async ctx => {
     await ctx.answerCbQuery();
     const { Campaign, Account } = await import('../db.js');
@@ -51,11 +51,11 @@ export function createBot(config) {
       Account.countDocuments({ ownerId: ctx.from.id }),
       Campaign.countDocuments({ ownerId: ctx.from.id })
     ]);
-    await ctx.editMessageText(`📊 Statistics\n\nAccounts: ${accounts}\nCampaigns: ${campaigns}`, mainKeyboard());
+    await ctx.editMessageText(`📊 Statistics\n\nAccounts: ${accounts}\nCampaigns: ${campaigns}`, backKeyboard());
   });
   bot.action('support', async ctx => {
     await ctx.answerCbQuery();
-    await ctx.editMessageText(config.supportUrl ? `🆘 Support\n\n${config.supportUrl}` : '🆘 Support is not configured.', mainKeyboard());
+    await ctx.editMessageText(config.supportUrl ? `🆘 Support\n\n${config.supportUrl}` : '🆘 Support is not configured.', backKeyboard());
   });
 
   registerAccountHandlers(bot, config);
