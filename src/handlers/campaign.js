@@ -230,7 +230,7 @@ async function getConnectedAccount(ownerId, config) {
   return account;
 }
 
-async function scanGroups(ownerId) {
+async function scanGroups(ownerId, config) {
   const account = await getConnectedAccount(ownerId, config);
   if (!account) throw new Error('Connect your Telegram account first.');
   const groups = await listWritableGroups(account._id);
@@ -505,7 +505,7 @@ ${error.message}`, backKeyboard());
   bot.action('group_scan', async ctx => {
     await ctx.answerCbQuery('Scanning groups...');
     try {
-      const { groups } = await scanGroups(ctx.from.id);
+      const { groups } = await scanGroups(ctx.from.id, config);
       await safeEdit(ctx, groupListText(groups), groupMenuKeyboard());
     } catch (error) {
       await safeEdit(ctx, `❌ Group scan failed\n\n${error.message}`, groupMenuKeyboard());
