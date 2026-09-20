@@ -155,7 +155,7 @@ export function registerCampaignHandlers(bot, config) {
 
   bot.action(/^dm_pause:(.+)$/, async ctx => {
     await ctx.answerCbQuery('Pausing...');
-    const campaign = await pauseCampaign(ctx.match[1]);
+    const campaign = await pauseCampaign(ctx.match[1], ctx.from.id);
     if (!campaign || String(campaign.ownerId) !== String(ctx.from.id)) {
       return safeEdit(ctx, '❌ Campaign not found.', backKeyboard());
     }
@@ -185,7 +185,7 @@ export function registerCampaignHandlers(bot, config) {
 
   bot.action(/^dm_stop:(.+)$/, async ctx => {
     await ctx.answerCbQuery('Stopping...');
-    const campaign = await cancelCampaign(ctx.match[1]);
+    const campaign = await cancelCampaign(ctx.match[1], ctx.from.id);
     if (!campaign || String(campaign.ownerId) !== String(ctx.from.id)) {
       return safeEdit(ctx, '❌ Campaign not found.', backKeyboard());
     }
