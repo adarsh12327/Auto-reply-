@@ -87,7 +87,11 @@ export async function attachAutoReply(account, client) {
     }
 
     try {
-      await client.sendMessage(message.peerId, { message: current.autoReplyText });
+      // Resolve the sender to a full Telegram entity before sending. The raw
+      // PeerUser from an update may not be present in GramJS's entity cache.
+      const sender = await message.getSender();
+      if (!sender) throw new Error('Could not resolve the message sender');
+      await client.sendMessage(sender, { message: current.autoReplyText });
     } catch (error) {
       await ReplyLog.deleteOne({ accountId: account._id, peerId });
       logger.error('Auto-reply send failed', {
