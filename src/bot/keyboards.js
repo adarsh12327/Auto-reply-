@@ -23,9 +23,23 @@ export const autoReplyKeyboard = enabled => Markup.inlineKeyboard([
   [Markup.button.callback('⬅️ Back to Home', 'main_menu')]
 ]);
 
+export const dmMenuKeyboard = () => Markup.inlineKeyboard([
+  [Markup.button.callback('✉️ New Message', 'dm_new')],
+  [Markup.button.callback('👥 Recipients', 'dm_audience')],
+  [Markup.button.callback('⬅️ Back to Home', 'main_menu')]
+]);
+
+export const dmAudienceKeyboard = () => Markup.inlineKeyboard([
+  [Markup.button.callback('➕ Add Recipient', 'dm_recipient_add')],
+  [Markup.button.callback('➖ Remove Recipient', 'dm_recipient_remove')],
+  [Markup.button.callback('🔄 Refresh', 'dm_audience')],
+  [Markup.button.callback('⬅️ Back to Home', 'main_menu')]
+]);
+
 export const dmDraftKeyboard = campaignId => Markup.inlineKeyboard([
   [Markup.button.callback('▶️ Send DM', 'dm_send:' + campaignId)],
   [Markup.button.callback('✏️ Edit Message', 'dm_edit')],
+  [Markup.button.callback('👥 Recipients', 'dm_audience')],
   [Markup.button.callback('⬅️ Back to Home', 'main_menu')]
 ]);
 
