@@ -248,3 +248,27 @@ export async function listWritableGroups(accountId) {
 
   return groups;
 }
+
+
+export async function listPersonalDialogs(accountId) {
+  const client = getClient(accountId);
+  if (!client?.connected) throw new Error('Telegram account is not connected');
+
+  const me = await client.getMe();
+  const peers = [];
+
+  for await (const dialog of client.iterDialogs({})) {
+    const entity = dialog.entity;
+    if (!entity || !(entity instanceof Api.User)) continue;
+    if (entity.bot || entity.self || String(entity.id) === String(me.id)) continue;
+
+    peers.push({
+      id: String(entity.id),
+      name: [entity.firstName, entity.lastName].filter(Boolean).join(' ').trim() || 'Unknown',
+      username: entity.username ? String(entity.username) : '',
+      type: 'personal'
+    });
+  }
+
+  return peers;
+}
