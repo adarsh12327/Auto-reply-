@@ -71,8 +71,10 @@ async function startDmCampaign(ctx, campaign) {
   }
 
   campaign.targetIds = targets;
-  campaign.stats = { total: targets.length, sent: 0, failed: 0, skipped: 0 };
-  campaign.status = 'draft';
+  if (campaign.status !== 'paused') {
+    campaign.stats = { total: targets.length, sent: 0, failed: 0, skipped: 0 };
+    campaign.status = 'draft';
+  }
   await campaign.save();
 
   await safeEdit(ctx, progressText(campaign, 0, targets.length), dmRunningKeyboard(campaign._id));
