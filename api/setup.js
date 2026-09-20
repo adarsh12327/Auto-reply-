@@ -1,5 +1,4 @@
 import { Telegraf } from 'telegraf';
-import { loadConfig } from '../src/config.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET' && req.method !== 'POST') {
@@ -8,12 +7,19 @@ export default async function handler(req, res) {
   }
 
   try {
-    const config = loadConfig();
-    const bot = new Telegraf(config.botToken);
+    const botToken = process.env.BOT_TOKEN;
+    if (!botToken) throw new Error('BOT_TOKEN is not configured in Vercel');
+
     const baseUrl = process.env.WEBHOOK_URL
-      ? process.env.WEBHOOK_URL.replace(/\\/$/, '')
+      ? process.env.WEBHOOK_URL.replace(/\/$/, '')
       : 'https://' + process.env.VERCEL_URL;
+
+    if (!baseUrl || baseUrl === 'https://undefined') {
+      throw new Error('VERCEL_URL or WEBHOOK_URL is not available');
+    }
+
     const webhookUrl = baseUrl + '/api/webhook';
+    const bot = new Telegraf(botToken);
 
     await bot.telegram.setWebhook(webhookUrl, {
       allowed_updates: ['message', 'callback_query', 'chat_member']
