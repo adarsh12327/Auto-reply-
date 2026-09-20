@@ -15,12 +15,14 @@ export function registerAutoReplyHandlers(bot) {
   bot.action('auto_reply', async ctx => {
     await ctx.answerCbQuery();
     const account = await getConnectedAccount(ctx.from.id);
-    await ctx.editMessageText(
-      account
-        ? statusText(account) + '\n\nUse /autoreply_on, /autoreply_off or /setreply <message>.'
-        : statusText(account),
-      mainKeyboard()
-    );
+    const text = account
+      ? statusText(account) + '\n\nUse /autoreply_on, /autoreply_off or /setreply <message>.'
+      : statusText(account);
+    try {
+      await ctx.editMessageText(text, mainKeyboard());
+    } catch (error) {
+      if (!String(error?.description || error?.message).includes('message is not modified')) throw error;
+    }
   });
 
   bot.command('autoreply_on', async ctx => {
