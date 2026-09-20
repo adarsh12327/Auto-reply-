@@ -1,6 +1,6 @@
 import 'dotenv/config';
 
-const required = ['BOT_TOKEN', 'BOT_USERNAME', 'MONGODB_URI', 'TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'SESSION_ENCRYPTION_KEY'];
+const required = ['BOT_TOKEN', 'BOT_USERNAME', 'MONGODB_URI', 'SESSION_ENCRYPTION_KEY'];
 
 export function isHexKey(value) {
   return typeof value === 'string' && /^[0-9a-fA-F]{64}$/.test(value);
@@ -11,9 +11,6 @@ export function loadConfig() {
     if (!process.env[name]) throw new Error(`Missing required environment variable: ${name}`);
   }
 
-  if (!/^\d+$/.test(process.env.TELEGRAM_API_ID)) {
-    throw new Error('TELEGRAM_API_ID must be numeric');
-  }
   if (!isHexKey(process.env.SESSION_ENCRYPTION_KEY)) {
     throw new Error('SESSION_ENCRYPTION_KEY must be exactly 64 hexadecimal characters');
   }
@@ -31,8 +28,6 @@ export function loadConfig() {
     botToken: process.env.BOT_TOKEN,
     botUsername: process.env.BOT_USERNAME.replace(/^@/, ''),
     mongoUri: process.env.MONGODB_URI,
-    telegramApiId: Number(process.env.TELEGRAM_API_ID),
-    telegramApiHash: process.env.TELEGRAM_API_HASH,
     encryptionKey: Buffer.from(process.env.SESSION_ENCRYPTION_KEY, 'hex'),
     adminIds,
     supportUrl: process.env.SUPPORT_URL || '',
