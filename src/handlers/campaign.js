@@ -228,8 +228,9 @@ async function startGroupCampaign(ctx, campaign, config) {
       const groups = await listWritableGroups(account._id);
       targets = groups.map(group => group.id);
     } catch (error) {
-    await safeEdit(ctx, `❌ Group scan failed\n\n${error.message}`, backKeyboard());
-    return;
+      await safeEdit(ctx, `❌ Group scan failed\n\n${error.message}`, backKeyboard());
+      return;
+    }
   }
 
   if (!targets.length) {
