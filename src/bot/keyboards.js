@@ -76,3 +76,50 @@ export const dmPausedKeyboard = campaignId => Markup.inlineKeyboard([
   ],
   [Markup.button.callback('⬅️ Back to Home', 'main_menu')]
 ]);
+
+
+export const delayKeyboard = (campaignId, currentMs, backAction = 'main_menu') => {
+  const values = [10000, 15000, 20000, 25000, 30000, 60000];
+  const label = ms => `${Math.round(ms / 1000)}s`;
+  return Markup.inlineKeyboard([
+    values.slice(0, 3).map(ms => Markup.button.callback(
+      (ms === currentMs ? '✅ ' : '') + label(ms),
+      `campaign_delay:${campaignId}:${ms}`
+    )),
+    values.slice(3).map(ms => Markup.button.callback(
+      (ms === currentMs ? '✅ ' : '') + label(ms),
+      `campaign_delay:${campaignId}:${ms}`
+    )),
+    [Markup.button.callback('⬅️ Back to Home', backAction)]
+  ]);
+};
+
+export const groupMenuKeyboard = () => Markup.inlineKeyboard([
+  [Markup.button.callback('🔎 Scan My Groups', 'group_scan')],
+  [Markup.button.callback('✉️ New Group Message', 'group_new')],
+  [Markup.button.callback('⬅️ Back to Home', 'main_menu')]
+]);
+
+export const groupDraftKeyboard = (campaignId, delayMs) => Markup.inlineKeyboard([
+  [Markup.button.callback('⏱️ Delay: ' + Math.round(delayMs / 1000) + 's', `group_delay_menu:${campaignId}`)],
+  [Markup.button.callback('▶️ Send to Groups', 'group_send:' + campaignId)],
+  [Markup.button.callback('✏️ Edit Message', 'group_edit:' + campaignId)],
+  [Markup.button.callback('🔎 Scan Groups', 'group_scan')],
+  [Markup.button.callback('⬅️ Back to Home', 'main_menu')]
+]);
+
+export const groupRunningKeyboard = campaignId => Markup.inlineKeyboard([
+  [
+    Markup.button.callback('⏸️ Pause', 'group_pause:' + campaignId),
+    Markup.button.callback('🛑 Stop', 'group_stop:' + campaignId)
+  ],
+  [Markup.button.callback('⬅️ Back to Home', 'main_menu')]
+]);
+
+export const groupPausedKeyboard = campaignId => Markup.inlineKeyboard([
+  [
+    Markup.button.callback('▶️ Resume', 'group_resume:' + campaignId),
+    Markup.button.callback('🛑 Stop', 'group_stop:' + campaignId)
+  ],
+  [Markup.button.callback('⬅️ Back to Home', 'main_menu')]
+]);
