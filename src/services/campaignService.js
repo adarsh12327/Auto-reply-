@@ -136,17 +136,17 @@ export async function runCampaign(
   }
 }
 
-export async function pauseCampaign(campaignId) {
-  return Campaign.findByIdAndUpdate(
-    campaignId,
+export async function pauseCampaign(campaignId, ownerId) {
+  return Campaign.findOneAndUpdate(
+    { _id: campaignId, ownerId },
     { status: 'paused' },
     { new: true }
   );
 }
 
-export async function cancelCampaign(campaignId) {
-  return Campaign.findByIdAndUpdate(
-    campaignId,
+export async function cancelCampaign(campaignId, ownerId) {
+  return Campaign.findOneAndUpdate(
+    { _id: campaignId, ownerId },
     { status: 'cancelled' },
     { new: true }
   );
