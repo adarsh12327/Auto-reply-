@@ -1,5 +1,7 @@
 import { Account } from '../db.js';
-import { mainKeyboard } from '../bot/keyboards.js';
+import { autoReplyKeyboard } from '../bot/keyboards.js';
+
+const pendingReply = new Map();
 
 async function getConnectedAccount(ownerId) {
   return Account.findOne({ ownerId, status: 'connected' }).sort({ updatedAt: -1 });
@@ -7,63 +9,102 @@ async function getConnectedAccount(ownerId) {
 
 function statusText(account) {
   return account
-    ? `🤖 Auto Reply\n\nStatus: ${account.autoReplyEnabled ? 'ON' : 'OFF'}\nReply: ${account.autoReplyText || 'Not set'}`
+    ? `🤖 Auto Reply
+
+Status: ${account.autoReplyEnabled ? '🟢 ON' : '🔴 OFF'}
+Reply: ${account.autoReplyText || 'Not set'}`
     : '❌ Connect a Telegram account first.';
+}
+
+async function editAutoReply(ctx, account) {
+  const text = statusText(account);
+  try {
+    await ctx.editMessageText(text, autoReplyKeyboard(Boolean(account?.autoReplyEnabled)));
+  } catch (error) {
+    const message = String(error?.description || error?.message || '');
+    if (!message.includes('message is not modified')) throw error;
+  }
 }
 
 export function registerAutoReplyHandlers(bot) {
   bot.action('auto_reply', async ctx => {
     await ctx.answerCbQuery();
     const account = await getConnectedAccount(ctx.from.id);
-    const text = account
-      ? statusText(account) + '\n\nUse /autoreply_on, /autoreply_off or /setreply <message>.'
-      : statusText(account);
-    try {
-      await ctx.editMessageText(text, mainKeyboard());
-    } catch (error) {
-      if (!String(error?.description || error?.message).includes('message is not modified')) throw error;
-    }
+    await editAutoReply(ctx, account);
   });
 
-  bot.command('autoreply_on', async ctx => {
+  bot.action('auto_reply_set', async ctx => {
+    await ctx.answerCbQuery();
     const account = await getConnectedAccount(ctx.from.id);
-    if (!account) return ctx.reply('❌ No connected Telegram account found.');
+    if (!account) {
+      return editAutoReply(ctx, null);
+    }
+
+    pendingReply.set(ctx.from.id, { messageId: ctx.callbackQuery.message.message_id });
+    await ctx.editMessageText(
+      '✏️ Set Auto Reply\n\nSend the message you want your Telegram account to automatically send as its first reply.\n\n/cancel to stop.',
+      { reply_markup: { inline_keyboard: [[{ text: '⬅️ Back to Auto Reply', callback_data: 'auto_reply' }]] } }
+    );
+  });
+
+  bot.action('auto_reply_on', async ctx => {
+    await ctx.answerCbQuery();
+    const account = await getConnectedAccount(ctx.from.id);
+    if (!account) return editAutoReply(ctx, null);
 
     account.autoReplyEnabled = true;
     await account.save();
-
-    await ctx.reply(
-      `✅ Auto Reply enabled.\n\nReply: ${account.autoReplyText || 'Not set'}\n\nSend a DM to your connected Telegram account to test it.`,
-      mainKeyboard()
-    );
+    await editAutoReply(ctx, account);
   });
 
-  bot.command('autoreply_off', async ctx => {
-    const result = await Account.updateMany(
-      { ownerId: ctx.from.id },
-      { autoReplyEnabled: false }
-    );
-    await ctx.reply(
-      result.modifiedCount
-        ? '⏸️ Auto Reply disabled.'
-        : '❌ No Telegram account found.',
-      mainKeyboard()
-    );
+  bot.action('auto_reply_off', async ctx => {
+    await ctx.answerCbQuery();
+    const account = await getConnectedAccount(ctx.from.id);
+    if (!account) return editAutoReply(ctx, null);
+
+    account.autoReplyEnabled = false;
+    await account.save();
+    await editAutoReply(ctx, account);
   });
 
-  bot.command('setreply', async ctx => {
-    const text = ctx.message.text.replace(/^\/setreply(?:@\w+)?\s*/i, '').trim();
-    if (!text) return ctx.reply('Usage: /setreply Your message');
+  bot.action('auto_reply_clear', async ctx => {
+    await ctx.answerCbQuery();
+    const account = await getConnectedAccount(ctx.from.id);
+    if (!account) return editAutoReply(ctx, null);
+
+    account.autoReplyText = '';
+    await account.save();
+    await editAutoReply(ctx, account);
+  });
+
+  bot.on('text', async (ctx, next) => {
+    const state = pendingReply.get(ctx.from.id);
+    if (!state) return next();
+
+    const text = ctx.message.text.trim();
+
+    if (text === '/cancel') {
+      pendingReply.delete(ctx.from.id);
+      await ctx.reply('❌ Cancelled. Open Auto Reply again to continue.');
+      return;
+    }
+
+    if (!text || text.startsWith('/')) {
+      await ctx.reply('❌ Send the reply text as a normal message, or /cancel.');
+      return;
+    }
 
     const account = await getConnectedAccount(ctx.from.id);
-    if (!account) return ctx.reply('❌ No connected Telegram account found.');
+    pendingReply.delete(ctx.from.id);
+
+    if (!account) {
+      await ctx.reply('❌ No connected Telegram account found.');
+      return;
+    }
 
     account.autoReplyText = text.slice(0, 4096);
     await account.save();
 
-    await ctx.reply(
-      `✅ Reply message saved.\n\nCurrent reply: ${account.autoReplyText}\n\nNow use /autoreply_on to enable it.`,
-      mainKeyboard()
-    );
+    await ctx.reply('✅ Auto-reply message saved. Open Auto Reply to review it.');
   });
 }
