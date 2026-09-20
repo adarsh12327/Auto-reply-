@@ -213,3 +213,38 @@ export async function disconnectAccount(accountId) {
     clients.delete(id);
   }
 }
+
+
+export async function listWritableGroups(accountId) {
+  const client = getClient(accountId);
+  if (!client?.connected) throw new Error('Telegram account is not connected');
+
+  const groups = [];
+  for await (const dialog of client.iterDialogs({})) {
+    const entity = dialog.entity;
+    if (!entity) continue;
+
+    const isBasicGroup = entity instanceof Api.Chat;
+    const isSupergroup = entity instanceof Api.Channel && Boolean(entity.megagroup);
+    if (!isBasicGroup && !isSupergroup) continue;
+
+    const target = String(entity.id);
+    let allowed = false;
+    try {
+      allowed = await canPost(client, entity);
+    } catch {
+      allowed = false;
+    }
+
+    if (!allowed) continue;
+
+    groups.push({
+      id: target,
+      title: String(dialog.title || entity.title || 'Untitled group'),
+      username: entity.username ? String(entity.username) : '',
+      type: isSupergroup ? 'supergroup' : 'group'
+    });
+  }
+
+  return groups;
+}
