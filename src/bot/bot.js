@@ -2,7 +2,9 @@ import { Telegraf, Markup } from 'telegraf';
 import { User, Account, Campaign, Setting } from '../db.js';
 import { mainKeyboard, backKeyboard } from './keyboards.js';
 import { startHandler } from '../handlers/start.js';
-import { registerAccountHandlers } from '../handlers/account.js';
+import { registerAccountHandlers, cancelPendingLogin } from '../handlers/account.js';
+import { disconnectAccount } from '../services/telegramClient.js';
+import { ReplyLog, ScannedPeer } from '../db.js';
 import { registerAutoReplyHandlers } from '../handlers/autoReply.js';
 import { registerCampaignHandlers } from '../handlers/campaign.js';
 import { registerAdminHandlers } from '../handlers/admin.js';
@@ -47,8 +49,7 @@ export function createBot(config) {
     await ctx.editMessageText('🏠 Main Menu', mainKeyboard());
   });
 
-  bot.action('accounts', async ctx => {
-    await ctx.answerCbQuery();
+  async function renderAccounts(ctx) {
     const accounts = await Account.find({ ownerId: ctx.from.id }).sort({ createdAt: -1 }).lean();
     const text = accounts.length
       ? accounts.map((a, i) => {
@@ -56,11 +57,75 @@ export function createBot(config) {
           return (i + 1) + '. ' + (a.phoneMasked || 'Account') + ' — ' + icon + ' ' + a.status;
         }).join('\n')
       : 'No accounts connected yet.';
-    const keyboard = Markup.inlineKeyboard([
-      [Markup.button.callback('➕ Add Account', 'add_account')],
-      [Markup.button.callback('⬅️ Back to Home', 'main_menu')]
-    ]);
-    await ctx.editMessageText('👤 Accounts\n\n' + text, keyboard);
+
+    const rows = [];
+    for (const a of accounts) {
+      const label = a.status === 'connected' ? '🚪 Logout ' : a.status === 'pending' ? '🛑 Cancel Login ' : '🔄 Login ';
+      rows.push([Markup.button.callback(label + (a.phoneMasked || 'Account'), 'account_logout:' + a._id)]);
+    }
+    rows.push([Markup.button.callback('➕ Add Account', 'add_account')]);
+    rows.push([Markup.button.callback('⬅️ Back to Home', 'main_menu')]);
+
+    await ctx.editMessageText('👤 Accounts\n\n' + text + '\n\nSelect an account action:', Markup.inlineKeyboard(rows));
+  }
+
+  bot.action('accounts', async ctx => {
+    await ctx.answerCbQuery();
+    await renderAccounts(ctx);
+  });
+
+  bot.action(/^account_logout:(.+)$/, async ctx => {
+    await ctx.answerCbQuery();
+    const accountId = ctx.match[1];
+    const account = await Account.findOne({ _id: accountId, ownerId: ctx.from.id });
+    if (!account) {
+      await ctx.reply('❌ Account not found.');
+      return;
+    }
+
+    await ctx.editMessageText(
+      '🚪 Account logout\n\n' +
+      (account.phoneMasked || 'Account') +
+      '\n\nLogging out removes the saved Telegram session. You can add/login this account again later.\n\nContinue?',
+      Markup.inlineKeyboard([
+        [Markup.button.callback('✅ Confirm Logout', 'account_logout_confirm:' + account._id)],
+        [Markup.button.callback('⬅️ Back to Accounts', 'accounts')]
+      ])
+    );
+  });
+
+  bot.action(/^account_logout_confirm:(.+)$/, async ctx => {
+    await ctx.answerCbQuery();
+    const accountId = ctx.match[1];
+    const account = await Account.findOne({ _id: accountId, ownerId: ctx.from.id });
+    if (!account) {
+      await renderAccounts(ctx);
+      return;
+    }
+
+    await disconnectAccount(account._id).catch(() => {});
+    cancelPendingLogin(ctx.from.id);
+
+    account.status = 'paused';
+    account.sessionEncrypted = undefined;
+    account.loginPhoneCodeHashEncrypted = undefined;
+    account.loginStep = null;
+    account.telegramUserId = null;
+    account.connectedAt = null;
+    account.lastError = 'Logged out by user';
+    await account.save();
+
+    await ReplyLog.deleteMany({ accountId: account._id });
+    await ScannedPeer.deleteMany({ accountId: account._id });
+
+    await ctx.editMessageText(
+      '✅ Logged out successfully.\n\nThe saved Telegram session was removed. You can login again from Accounts.',
+      Markup.inlineKeyboard([
+        [Markup.button.callback('🔄 Login Again', 'add_account')],
+        [Markup.button.callback('⬅️ Back to Accounts', 'accounts')],
+        [Markup.button.callback('🏠 Back to Home', 'main_menu')]
+      ])
+    );
   });
 
   bot.action('referrals', async ctx => {
