@@ -64,6 +64,11 @@ export async function createUserClient({ account, encryptionKey, onLoginCode }) 
     });
   } else {
     await client.connect();
+
+    const authorized = await client.checkAuthorization();
+    if (!authorized) {
+      throw new Error('Telegram session is connected but not authorized. Please reconnect the Telegram account.');
+    }
   }
 
   const me = await client.getMe();
