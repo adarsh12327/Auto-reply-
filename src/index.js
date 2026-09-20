@@ -1,7 +1,7 @@
 import { loadConfig } from './config.js';
 import { connectDb, closeDb, Account } from './db.js';
 import { createBot } from './bot/bot.js';
-import { createUserClient, attachAutoReply } from './services/telegramClient.js';
+import { createUserClient, attachAutoReply, isClientConnected } from './services/telegramClient.js';
 import { logger } from './logger.js';
 
 const config = loadConfig();
@@ -20,17 +20,31 @@ async function loadConnectedAccounts() {
     const accounts = await Account.find({ status: 'connected' })
       .select('+sessionEncrypted +apiHashEncrypted +phoneEncrypted');
 
+    const activeIds = new Set(accounts.map(account => String(account._id)));
+
+    for (const id of loadedAccounts) {
+      if (!activeIds.has(id)) loadedAccounts.delete(id);
+    }
+
     for (const account of accounts) {
       const id = String(account._id);
-      if (loadedAccounts.has(id)) continue;
+
+      if (loadedAccounts.has(id) && isClientConnected(account._id)) continue;
+
+      if (loadedAccounts.has(id)) {
+        loadedAccounts.delete(id);
+        logger.warn('Telegram account connection lost; reconnecting', { accountId: id });
+      }
 
       try {
         const client = await createUserClient({
           account,
           encryptionKey: config.encryptionKey
         });
+
         await attachAutoReply(account, client);
         loadedAccounts.add(id);
+
         logger.info('Telegram account ready', {
           accountId: id,
           telegramUserId: account.telegramUserId
