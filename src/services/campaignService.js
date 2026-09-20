@@ -50,6 +50,8 @@ export async function runCampaign(
   const client = getClient(account._id);
   if (!client) throw new Error('Telegram account is not connected');
 
+  const effectiveDelayMs = Math.max(1000, Number(campaign.delayMs || delayMs) || 3000);
+
   let targets = Array.isArray(campaign.targetIds) ? campaign.targetIds.map(String) : [];
 
   if (campaign.type === 'dm' && requireConsent) {
@@ -157,7 +159,7 @@ export async function runCampaign(
       }
 
       if (index < targets.length - 1) {
-        await sleep(Math.max(1000, Number(delayMs) || 3000));
+        await sleep(effectiveDelayMs);
       }
     }
 
