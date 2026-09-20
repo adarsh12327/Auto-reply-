@@ -6,7 +6,7 @@ export function registerCampaignHandlers(bot, config) {
   for (const type of ['dm', 'group', 'channel']) {
     bot.action(`campaign_${type}`, async ctx => {
       await ctx.answerCbQuery();
-      await ctx.reply(
+      await ctx.editMessageText(
         `📢 ${type.toUpperCase()} campaign\n\nThis module supports authorized/consent-based recipients only.\n\nCreate via:\n/campaign ${type} TARGET_ID MESSAGE`,
         mainKeyboard()
       );
