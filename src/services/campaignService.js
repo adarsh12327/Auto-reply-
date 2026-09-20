@@ -20,10 +20,10 @@ export async function validateTargets({ ownerId, type, targetIds, requireConsent
 }
 
 export async function getAuthorizedDmTargets(ownerId) {
-  const rows = await Consent.find({
-    ownerId,
-    active: true
-  }).select('recipientId').sort({ createdAt: 1 }).lean();
+  const rows = await Consent.find({ ownerId, active: true })
+    .select('recipientId')
+    .sort({ createdAt: 1 })
+    .lean();
 
   return [...new Set(rows.map(row => String(row.recipientId)))];
 }
@@ -46,15 +46,13 @@ export async function runCampaign(
 
   let targets = campaign.targetIds || [];
 
-  if (campaign.type === 'dm') {
-    if (requireConsent) {
-      targets = await validateTargets({
-        ownerId: campaign.ownerId,
-        type: campaign.type,
-        targetIds: targets,
-        requireConsent
-      });
-    }
+  if (campaign.type === 'dm' && requireConsent) {
+    targets = await validateTargets({
+      ownerId: campaign.ownerId,
+      type: campaign.type,
+      targetIds: targets,
+      requireConsent
+    });
 
     if (!targets.length) {
       campaign.status = 'failed';
@@ -67,14 +65,10 @@ export async function runCampaign(
   runningCampaigns.add(id);
   try {
     const isResume = campaign.status === 'paused';
-    const startIndex = isResume
-      ? Math.min(
-          targets.length,
-          Number(campaign.stats.sent || 0) +
-          Number(campaign.stats.failed || 0) +
-          Number(campaign.stats.skipped || 0)
-        )
-      : 0;
+    const processed = Number(campaign.stats.sent || 0) +
+      Number(campaign.stats.failed || 0) +
+      Number(campaign.stats.skipped || 0);
+    const startIndex = isResume ? Math.min(targets.length, processed) : 0;
 
     campaign.status = 'running';
     campaign.stats.total = targets.length;
@@ -110,11 +104,9 @@ export async function runCampaign(
 
       await campaign.save();
 
-      if (
-        campaign.stats.sent + campaign.stats.failed + campaign.stats.skipped === targets.length ||
-        (campaign.stats.sent + campaign.stats.failed + campaign.stats.skipped) % 5 === 0
-      ) {
-        await onProgress?.(campaign, index + 1, targets.length);
+      const currentProcessed = campaign.stats.sent + campaign.stats.failed + campaign.stats.skipped;
+      if (currentProcessed === targets.length || currentProcessed % 5 === 0) {
+        await onProgress?.(campaign, currentProcessed, targets.length);
       }
 
       if (index < targets.length - 1) {
@@ -123,13 +115,19 @@ export async function runCampaign(
     }
 
     const finalCampaign = await Campaign.findById(campaignId);
-    if (finalCampaign?.status === 'running') {
+    const finalProcessed = finalCampaign
+      ? Number(finalCampaign.stats.sent || 0) +
+        Number(finalCampaign.stats.failed || 0) +
+        Number(finalCampaign.stats.skipped || 0)
+      : 0;
+
+    if (finalCampaign?.status === 'running' && finalProcessed >= targets.length) {
       finalCampaign.status = 'completed';
       await finalCampaign.save();
     }
 
     const result = finalCampaign || campaign;
-    await onProgress?.(result, targets.length, targets.length);
+    await onProgress?.(result, finalProcessed, targets.length);
     return result;
   } finally {
     runningCampaigns.delete(id);
@@ -138,7 +136,7 @@ export async function runCampaign(
 
 export async function pauseCampaign(campaignId, ownerId) {
   return Campaign.findOneAndUpdate(
-    { _id: campaignId, ownerId },
+    { _id: campaignId, ownerId, status: 'running' },
     { status: 'paused' },
     { new: true }
   );
@@ -146,7 +144,7 @@ export async function pauseCampaign(campaignId, ownerId) {
 
 export async function cancelCampaign(campaignId, ownerId) {
   return Campaign.findOneAndUpdate(
-    { _id: campaignId, ownerId },
+    { _id: campaignId, ownerId, status: { $in: ['running', 'paused', 'draft'] } },
     { status: 'cancelled' },
     { new: true }
   );
