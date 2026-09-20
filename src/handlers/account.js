@@ -1,6 +1,8 @@
 import { Account } from '../db.js';
-import { encryptText } from '../crypto.js';
+import { encryptText, decryptText } from '../crypto.js';
 import { mainKeyboard } from '../bot/keyboards.js';
+import { TelegramClient, Api } from 'telegram';
+import { StringSession } from 'telegram/sessions/index.js';
 import { createUserClient, attachAutoReply } from '../services/telegramClient.js';
 
 const pending = new Map();
@@ -17,11 +19,79 @@ async function deleteMessage(ctx) {
   }
 }
 
-async function waitForLoginInput(ctx, step, prompt) {
-  await ctx.reply(prompt + '\n\n/cancel to stop.');
-  return new Promise((resolve, reject) => {
-    pending.set(ctx.from.id, { step, resolve, reject });
-  });
+async function saveLoginSession(account, client, encryptionKey) {
+  account.sessionEncrypted = encryptText(client.session.save(), encryptionKey);
+  await account.save();
+}
+
+async function createPendingLoginClient(account, config) {
+  const apiHash = decryptText(account.apiHashEncrypted, config.encryptionKey);
+  const phone = decryptText(account.phoneEncrypted, config.encryptionKey);
+  const session = account.sessionEncrypted
+    ? decryptText(account.sessionEncrypted, config.encryptionKey)
+    : '';
+
+  const client = new TelegramClient(
+    new StringSession(session),
+    account.apiId,
+    apiHash,
+    { connectionRetries: 5 }
+  );
+
+  await client.connect();
+  return { client, apiHash, phone };
+}
+
+async function finishLogin(account, config, code, password = null) {
+  const { client, apiHash, phone } = await createPendingLoginClient(account, config);
+
+  try {
+    let me;
+
+    if (password !== null) {
+      if (typeof client.checkPassword !== 'function') {
+        throw new Error('This Telegram client version does not support 2-step verification login.');
+      }
+      me = await client.checkPassword(password);
+    } else {
+      try {
+        me = await client.invoke(new Api.auth.SignIn({
+          phoneNumber: phone,
+          phoneCodeHash: decryptText(account.loginPhoneCodeHashEncrypted, config.encryptionKey),
+          phoneCode: code
+        }));
+      } catch (error) {
+        const message = String(error?.message || error || '');
+        if (
+          error?.errorMessage === 'SESSION_PASSWORD_NEEDED' ||
+          /SESSION_PASSWORD_NEEDED|password is needed|2-step|two-step/i.test(message)
+        ) {
+          account.loginStep = 'password';
+          await saveLoginSession(account, client, config.encryptionKey);
+          await client.disconnect().catch(() => {});
+          await account.save();
+          return { passwordRequired: true };
+        }
+        throw error;
+      }
+    }
+
+    const user = me?.user || me;
+    if (!user?.id) throw new Error('Telegram login did not return an authorized user.');
+
+    account.telegramUserId = Number(user.id);
+    account.status = 'connected';
+    account.connectedAt = new Date();
+    account.lastError = '';
+    account.loginStep = null;
+    account.loginPhoneCodeHashEncrypted = undefined;
+    await saveLoginSession(account, client, config.encryptionKey);
+    await client.disconnect().catch(() => {});
+    return { connected: true };
+  } catch (error) {
+    await client.disconnect().catch(() => {});
+    throw error;
+  }
 }
 
 export function registerAccountHandlers(bot, config) {
@@ -43,7 +113,12 @@ export function registerAccountHandlers(bot, config) {
     const text = ctx.message.text.trim();
 
     if (text === '/cancel') {
-      if (state.reject) state.reject(new Error('Login cancelled by user'));
+      if (state.accountId) {
+        await Account.updateOne(
+          { _id: state.accountId, ownerId: ctx.from.id, status: 'pending' },
+          { $set: { status: 'error', lastError: 'Login cancelled', loginStep: null } }
+        );
+      }
       pending.delete(ctx.from.id);
       await ctx.reply('❌ Cancelled.', mainKeyboard());
       return;
@@ -84,7 +159,8 @@ export function registerAccountHandlers(bot, config) {
         phoneEncrypted: encryptText(phone, config.encryptionKey),
         apiId: state.apiId,
         apiHashEncrypted: encryptText(state.apiHash, config.encryptionKey),
-        status: 'pending'
+        status: 'pending',
+        loginStep: 'code'
       };
 
       let account;
@@ -99,45 +175,84 @@ export function registerAccountHandlers(bot, config) {
         throw error;
       }
 
-      pending.set(ctx.from.id, { step: 'login', accountId: account._id });
-      await ctx.reply('4/4 Connecting… Telegram may send a login code to your account.');
-
       try {
-        const storedAccount = await Account.findById(account._id)
-          .select('+apiHashEncrypted +phoneEncrypted +sessionEncrypted');
+        const apiHash = state.apiHash;
+        const client = new TelegramClient(
+          new StringSession(''),
+          state.apiId,
+          apiHash,
+          { connectionRetries: 5 }
+        );
 
-        const client = await createUserClient({
-          account: storedAccount,
-          encryptionKey: config.encryptionKey,
-          onLoginCode: async type => {
-            const prompt = type === 'code'
-              ? '📩 Enter the Telegram login code you received:'
-              : '🔑 Enter your Telegram 2-step verification password:';
+        await client.connect();
+        const result = await client.sendCode(
+          { apiId: state.apiId, apiHash },
+          phone
+        );
 
-            const value = await waitForLoginInput(ctx, type, prompt);
-            await ctx.reply(type === 'code' ? 'Code received. Checking…' : 'Password received. Checking…');
-            return value;
-          }
-        });
+        account.sessionEncrypted = encryptText(client.session.save(), config.encryptionKey);
+        account.loginPhoneCodeHashEncrypted = encryptText(result.phoneCodeHash, config.encryptionKey);
+        account.loginStep = 'code';
+        await account.save();
+        await client.disconnect().catch(() => {});
 
-        await attachAutoReply(storedAccount, client);
-        pending.delete(ctx.from.id);
-        await ctx.reply('✅ Telegram account connected successfully!', mainKeyboard());
+        pending.set(ctx.from.id, { step: 'code', accountId: account._id });
+        await ctx.reply(
+          '4/4 📩 Telegram login code sent.\n\n' +
+          'Send the code here. Your code is never stored.\n\n/cancel to stop.'
+        );
       } catch (error) {
-        pending.delete(ctx.from.id);
         account.status = 'error';
+        account.loginStep = null;
         account.lastError = error.message;
         await account.save();
-        await ctx.reply(`❌ Telegram login failed: ${error.message}`, mainKeyboard());
+        pending.delete(ctx.from.id);
+        await ctx.reply(`❌ Could not send Telegram login code: ${error.message}`, mainKeyboard());
       }
       return;
     }
 
     if (state.step === 'code' || state.step === 'password') {
       await deleteMessage(ctx);
-      const resolver = state.resolve;
-      pending.delete(ctx.from.id);
-      resolver(text);
+
+      const account = await Account.findOne({ _id: state.accountId, ownerId: ctx.from.id })
+        .select('+apiHashEncrypted +phoneEncrypted +sessionEncrypted +loginPhoneCodeHashEncrypted');
+
+      if (!account) {
+        pending.delete(ctx.from.id);
+        await ctx.reply('❌ Login session not found. Please add the account again.', mainKeyboard());
+        return;
+      }
+
+      try {
+        if (state.step === 'code') {
+          const result = await finishLogin(account, config, text);
+
+          if (result.passwordRequired) {
+            pending.set(ctx.from.id, { step: 'password', accountId: account._id });
+            await ctx.reply('🔑 Your Telegram account has 2-step verification enabled. Send the 2FA password:');
+            return;
+          }
+        } else {
+          await finishLogin(account, config, null, text);
+        }
+
+        const stored = await Account.findById(account._id)
+          .select('+apiHashEncrypted +phoneEncrypted +sessionEncrypted');
+        const client = await createUserClient({
+          account: stored,
+          encryptionKey: config.encryptionKey
+        });
+        await attachAutoReply(stored, client);
+
+        pending.delete(ctx.from.id);
+        await ctx.reply('✅ Telegram account connected successfully!', mainKeyboard());
+      } catch (error) {
+        account.lastError = error.message;
+        await account.save();
+        await ctx.reply(`❌ Telegram login failed: ${error.message}\n\nPlease send the correct ${state.step === 'code' ? 'code' : '2FA password'} again, or /cancel.`);
+      }
+      return;
     }
   });
 }
