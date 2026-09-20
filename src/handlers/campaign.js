@@ -1,5 +1,13 @@
 import { Campaign, Account, Consent } from '../db.js';
-import { backKeyboard, mainKeyboard, dmDraftKeyboard, dmRunningKeyboard, dmPausedKeyboard } from '../bot/keyboards.js';
+import {
+  backKeyboard,
+  mainKeyboard,
+  dmMenuKeyboard,
+  dmAudienceKeyboard,
+  dmDraftKeyboard,
+  dmRunningKeyboard,
+  dmPausedKeyboard
+} from '../bot/keyboards.js';
 import {
   runCampaign,
   getAuthorizedDmTargets,
@@ -8,6 +16,13 @@ import {
 } from '../services/campaignService.js';
 
 const pendingDm = new Map();
+const pendingAudience = new Map();
+
+function processedCount(campaign) {
+  return Number(campaign.stats?.sent || 0) +
+    Number(campaign.stats?.failed || 0) +
+    Number(campaign.stats?.skipped || 0);
+}
 
 function progressText(campaign, processed, total) {
   const sent = campaign.stats?.sent || 0;
@@ -58,14 +73,45 @@ async function safeEdit(ctx, text, keyboard) {
   }
 }
 
-async function startDmCampaign(ctx, campaign) {
+async function audienceText(ownerId) {
+  const rows = await Consent.find({ ownerId, active: true })
+    .select('recipientId source createdAt')
+    .sort({ createdAt: 1 })
+    .lean();
+
+  if (!rows.length) {
+    return '👥 Authorized DM Recipients\n\nNo recipients yet.\n\nA person who sends a DM to your connected Telegram account is automatically added as an authorized recipient. You can also add one explicitly.';
+  }
+
+  const lines = rows.slice(0, 50).map((row, index) =>
+    `${index + 1}. ${row.recipientId} · ${row.source}`
+  );
+
+  const extra = rows.length > 50 ? `\n\n…and ${rows.length - 50} more.` : '';
+  return `👥 Authorized DM Recipients\n\nTotal: ${rows.length}\n\n${lines.join('\n')}${extra}`;
+}
+
+async function showAudience(ctx) {
+  await safeEdit(ctx, await audienceText(ctx.from.id), dmAudienceKeyboard());
+}
+
+async function startDmCampaign(ctx, campaign, config) {
   const targets = await getAuthorizedDmTargets(ctx.from.id);
 
   if (!targets.length) {
     await safeEdit(
       ctx,
-      '❌ No authorized DM recipients found.\n\nAdd recipients with /consent_add TARGET_ID before starting the campaign.',
-      backKeyboard()
+      '❌ No authorized DM recipients found.\n\nAsk the recipient to message your connected Telegram account first, or use ➕ Add Recipient.',
+      dmAudienceKeyboard()
+    );
+    return;
+  }
+
+  if (targets.length > config.maxRecipients) {
+    await safeEdit(
+      ctx,
+      `❌ Too many authorized recipients for one campaign.\n\nCurrent: ${targets.length}\nMaximum: ${config.maxRecipients}\n\nRemove some recipients before sending.`,
+      dmAudienceKeyboard()
     );
     return;
   }
@@ -77,12 +123,12 @@ async function startDmCampaign(ctx, campaign) {
   }
   await campaign.save();
 
-  await safeEdit(ctx, progressText(campaign, 0, targets.length), dmRunningKeyboard(campaign._id));
+  await safeEdit(ctx, progressText(campaign, processedCount(campaign), targets.length), dmRunningKeyboard(campaign._id));
 
   runCampaign(campaign._id, {
-    delayMs: 3000,
-    requireConsent: true,
-    requireGroupPermission: true,
+    delayMs: config.sendDelayMs,
+    requireConsent: config.requireConsent,
+    requireGroupPermission: config.requireGroupPermission,
     onProgress: async (updated, processed, total) => {
       try {
         const keyboard = updated.status === 'paused'
@@ -99,7 +145,7 @@ async function startDmCampaign(ctx, campaign) {
           keyboard
         );
       } catch {
-        // Progress UI must never interrupt the actual campaign.
+        // UI updates must never interrupt the campaign.
       }
     }
   }).catch(async error => {
@@ -118,12 +164,47 @@ async function startDmCampaign(ctx, campaign) {
 export function registerCampaignHandlers(bot, config) {
   bot.action('campaign_dm', async ctx => {
     await ctx.answerCbQuery();
-    pendingDm.set(ctx.from.id, {
+    const count = await Consent.countDocuments({ ownerId: ctx.from.id, active: true });
+    await ctx.editMessageText(
+      `📩 DM Campaign\n\nAuthorized recipients: ${count}\n\nOnly people who have explicitly authorized messaging are eligible.\n\nChoose an action below.`,
+      dmMenuKeyboard()
+    );
+  });
+
+  bot.action('dm_new', async ctx => {
+    await ctx.answerCbQuery();
+    pendingDm.set(ctx.from.id, { messageId: ctx.callbackQuery.message.message_id });
+    await ctx.editMessageText(
+      '✉️ New DM Campaign\n\nSend the message you want to save.\n\nAfter saving, review it and press ▶️ Send DM.',
+      backKeyboard()
+    );
+  });
+
+  bot.action('dm_audience', async ctx => {
+    await ctx.answerCbQuery();
+    await showAudience(ctx);
+  });
+
+  bot.action('dm_recipient_add', async ctx => {
+    await ctx.answerCbQuery();
+    pendingAudience.set(ctx.from.id, {
+      action: 'add',
       messageId: ctx.callbackQuery.message.message_id
     });
-
     await ctx.editMessageText(
-      '📩 DM Campaign\n\nSend the message you want to save.\n\nAfter saving, you can review it and press ▶️ Send DM.',
+      '➕ Add Authorized Recipient\n\nSend the Telegram user ID you have permission to message.\n\nThe recipient must have explicitly opted in or requested contact.\n\n/cancel to stop.',
+      backKeyboard()
+    );
+  });
+
+  bot.action('dm_recipient_remove', async ctx => {
+    await ctx.answerCbQuery();
+    pendingAudience.set(ctx.from.id, {
+      action: 'remove',
+      messageId: ctx.callbackQuery.message.message_id
+    });
+    await ctx.editMessageText(
+      '➖ Remove Authorized Recipient\n\nSend the recipient Telegram user ID to revoke authorization.\n\n/cancel to stop.',
       backKeyboard()
     );
   });
@@ -133,10 +214,7 @@ export function registerCampaignHandlers(bot, config) {
     pendingDm.set(ctx.from.id, {
       messageId: ctx.callbackQuery.message.message_id
     });
-    await ctx.editMessageText(
-      '✏️ Edit DM Message\n\nSend the new message text.',
-      backKeyboard()
-    );
+    await ctx.editMessageText('✏️ Edit DM Message\n\nSend the new message text.', backKeyboard());
   });
 
   bot.action(/^dm_send:(.+)$/, async ctx => {
@@ -148,20 +226,17 @@ export function registerCampaignHandlers(bot, config) {
     });
 
     if (!campaign) return safeEdit(ctx, '❌ Campaign not found.', backKeyboard());
-
-    await startDmCampaign(ctx, campaign);
+    await startDmCampaign(ctx, campaign, config);
   });
 
   bot.action(/^dm_pause:(.+)$/, async ctx => {
     await ctx.answerCbQuery('Pausing...');
     const campaign = await pauseCampaign(ctx.match[1], ctx.from.id);
-    if (!campaign || String(campaign.ownerId) !== String(ctx.from.id)) {
-      return safeEdit(ctx, '❌ Campaign not found.', backKeyboard());
-    }
+    if (!campaign) return safeEdit(ctx, '❌ Campaign not found.', backKeyboard());
 
     await safeEdit(
       ctx,
-      progressText(campaign, (campaign.stats.sent || 0) + (campaign.stats.failed || 0) + (campaign.stats.skipped || 0), campaign.stats.total || 0),
+      progressText(campaign, processedCount(campaign), campaign.stats.total || 0),
       dmPausedKeyboard(campaign._id)
     );
   });
@@ -175,23 +250,19 @@ export function registerCampaignHandlers(bot, config) {
     });
 
     if (!campaign) return safeEdit(ctx, '❌ Campaign not found.', backKeyboard());
-    if (campaign.status !== 'paused') {
-      return safeEdit(ctx, 'ℹ️ Campaign is not paused.', backKeyboard());
-    }
+    if (campaign.status !== 'paused') return safeEdit(ctx, 'ℹ️ Campaign is not paused.', backKeyboard());
 
-    await startDmCampaign(ctx, campaign);
+    await startDmCampaign(ctx, campaign, config);
   });
 
   bot.action(/^dm_stop:(.+)$/, async ctx => {
     await ctx.answerCbQuery('Stopping...');
     const campaign = await cancelCampaign(ctx.match[1], ctx.from.id);
-    if (!campaign || String(campaign.ownerId) !== String(ctx.from.id)) {
-      return safeEdit(ctx, '❌ Campaign not found.', backKeyboard());
-    }
+    if (!campaign) return safeEdit(ctx, '❌ Campaign not found.', backKeyboard());
 
     await safeEdit(
       ctx,
-      progressText(campaign, (campaign.stats.sent || 0) + (campaign.stats.failed || 0) + (campaign.stats.skipped || 0), campaign.stats.total || 0),
+      progressText(campaign, processedCount(campaign), campaign.stats.total || 0),
       backKeyboard()
     );
   });
@@ -200,7 +271,7 @@ export function registerCampaignHandlers(bot, config) {
     bot.action(`campaign_${type}`, async ctx => {
       await ctx.answerCbQuery();
       await ctx.editMessageText(
-        `📢 ${type.toUpperCase()} campaign\n\nCreate via:\n/campaign ${type} TARGET_ID MESSAGE`,
+        `📢 ${type.toUpperCase()} campaign\n\nUse the admin-approved/authorized target and message flow.\n\n/campaign ${type} TARGET_ID MESSAGE`,
         backKeyboard()
       );
     });
@@ -256,9 +327,7 @@ export function registerCampaignHandlers(bot, config) {
         active: true
       });
 
-      if (!consent) {
-        return ctx.reply('❌ This DM target is not authorized. Add explicit consent first.');
-      }
+      if (!consent) return ctx.reply('❌ This DM target is not authorized.');
     }
 
     const campaign = await Campaign.create({
@@ -291,20 +360,68 @@ export function registerCampaignHandlers(bot, config) {
         requireConsent: config.requireConsent,
         requireGroupPermission: config.requireGroupPermission
       });
-      await ctx.reply('✅ Campaign finished. Use Statistics to view the result.');
+      await ctx.reply('✅ Campaign finished.');
     } catch (error) {
       await ctx.reply(`❌ Campaign failed: ${error.message}`);
     }
   });
 
   bot.on('text', async (ctx, next) => {
+    const audienceState = pendingAudience.get(ctx.from.id);
+    if (audienceState) {
+      const text = ctx.message.text.trim();
+      if (text === '/cancel') {
+        pendingAudience.delete(ctx.from.id);
+        await ctx.telegram.editMessageText(ctx.chat.id, audienceState.messageId, undefined, await audienceText(ctx.from.id), dmAudienceKeyboard());
+        return;
+      }
+
+      if (!/^\d+$/.test(text)) {
+        await ctx.reply('❌ Recipient ID must contain only numbers.');
+        return;
+      }
+
+      if (audienceState.action === 'add') {
+        await Consent.findOneAndUpdate(
+          { ownerId: ctx.from.id, recipientId: text },
+          { $set: { active: true, source: 'user_added', revokedAt: null } },
+          { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+        pendingAudience.delete(ctx.from.id);
+        await ctx.deleteMessage().catch(() => {});
+        await ctx.telegram.editMessageText(
+          ctx.chat.id,
+          audienceState.messageId,
+          undefined,
+          await audienceText(ctx.from.id),
+          dmAudienceKeyboard()
+        );
+        return;
+      }
+
+      await Consent.updateOne(
+        { ownerId: ctx.from.id, recipientId: text },
+        { active: false, revokedAt: new Date() }
+      );
+      pendingAudience.delete(ctx.from.id);
+      await ctx.deleteMessage().catch(() => {});
+      await ctx.telegram.editMessageText(
+        ctx.chat.id,
+        audienceState.messageId,
+        undefined,
+        await audienceText(ctx.from.id),
+        dmAudienceKeyboard()
+      );
+      return;
+    }
+
     const state = pendingDm.get(ctx.from.id);
     if (!state) return next();
 
     const text = ctx.message.text.trim();
-
     if (!text || text.startsWith('/')) {
-      return ctx.reply('❌ Send the DM text as a normal message.');
+      await ctx.reply('❌ Send the DM text as a normal message.');
+      return;
     }
 
     pendingDm.delete(ctx.from.id);
@@ -315,9 +432,7 @@ export function registerCampaignHandlers(bot, config) {
     });
 
     if (!account) return ctx.reply('❌ Connect your Telegram account first.');
-    if (text.length > config.maxMessageLength) {
-      return ctx.reply('❌ Message is too long.');
-    }
+    if (text.length > config.maxMessageLength) return ctx.reply('❌ Message is too long.');
 
     const campaign = await Campaign.create({
       ownerId: ctx.from.id,
@@ -327,15 +442,17 @@ export function registerCampaignHandlers(bot, config) {
       message: text
     });
 
-    try {
-      await ctx.deleteMessage();
-    } catch {}
+    await ctx.deleteMessage().catch(() => {});
 
     await ctx.telegram.editMessageText(
       ctx.chat.id,
       state.messageId,
       undefined,
-      `📝 DM Message Saved\n\n${text}\n\nPress ▶️ Send DM to start sending one-by-one to your authorized recipients.`,
+      `📝 DM Message Saved
+
+${text}
+
+Press ▶️ Send DM to send it one-by-one to your authorized recipients.`,
       dmDraftKeyboard(campaign._id)
     );
   });
