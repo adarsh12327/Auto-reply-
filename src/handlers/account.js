@@ -2,7 +2,6 @@ import { Account } from '../db.js';
 import { encryptText, decryptText } from '../crypto.js';
 import { mainKeyboard } from '../bot/keyboards.js';
 import { TelegramClient, Api } from 'telegram';
-import { createHash, randomBytes } from 'node:crypto';
 import { StringSession } from 'telegram/sessions/index.js';
 import { createUserClient, attachAutoReply } from '../services/telegramClient.js';
 
@@ -45,27 +44,6 @@ async function createPendingLoginClient(account, config) {
 
   await client.connect();
   return { client, apiHash, phone };
-}
-
-function createLoginWebToken() {
-  const token = randomBytes(32).toString('base64url');
-  const hash = createHash('sha256').update(token).digest('hex');
-  return { token, hash, expiresAt: new Date(Date.now() + 10 * 60 * 1000) };
-}
-
-function getPublicBaseUrl() {
-  const configured = process.env.PUBLIC_BASE_URL || process.env.VERCEL_PROJECT_PRODUCTION_URL;
-  if (configured) return configured.startsWith('http') ? configured : 'https://' + configured;
-  if (process.env.VERCEL_URL) return 'https://' + process.env.VERCEL_URL;
-  return 'http://localhost:3000';
-}
-
-export function getLoginCodeUrl(token) {
-  return getPublicBaseUrl().replace(/\/$/, '') + '/api/login?token=' + encodeURIComponent(token);
-}
-
-export function hashLoginWebToken(token) {
-  return createHash('sha256').update(String(token)).digest('hex');
 }
 
 function telegramErrorText(error) {
@@ -137,7 +115,7 @@ async function sendLoginCode(account, config, { force = false, forceSMS = false 
   }
 }
 
-export async function finishLogin(account, config, code, password = null) {
+async function finishLogin(account, config, code, password = null) {
   const { client, apiHash, phone } = await createPendingLoginClient(account, config);
 
   try {
@@ -183,8 +161,6 @@ export async function finishLogin(account, config, code, password = null) {
     account.lastError = '';
     account.loginStep = null;
     account.loginPhoneCodeHashEncrypted = undefined;
-    account.loginWebTokenHash = null;
-    account.loginWebTokenExpiresAt = null;
     await saveLoginSession(account, client, config.encryptionKey);
     await client.disconnect().catch(() => {});
     return { connected: true };
@@ -216,8 +192,6 @@ export function registerAccountHandlers(bot, config) {
             loginCodeSendingAt: null,
             loginCodeVerifyingAt: null,
             loginPhoneCodeHashEncrypted: null,
-            loginWebTokenHash: null,
-            loginWebTokenExpiresAt: null
           }
         }
       );
@@ -369,28 +343,12 @@ export function registerAccountHandlers(bot, config) {
 
         const result = await sendLoginCode(account, config);
 
-        let loginUrl = null;
-        if (result.sent || result.alreadySent) {
-          const webToken = createLoginWebToken();
-          await Account.updateOne(
-            { _id: account._id, ownerId: ctx.from.id, status: 'pending' },
-            {
-              $set: {
-                loginWebTokenHash: webToken.hash,
-                loginWebTokenExpiresAt: webToken.expiresAt
-              }
-            }
-          );
-          loginUrl = getLoginCodeUrl(webToken.token);
-        }
-
         pending.set(ctx.from.id, { step: 'code', accountId: account._id });
 
         if (result.alreadySent || result.locked) {
           await ctx.reply(
             '4/4 📩 A Telegram login code has already been requested for this login.\n\n' +
-            'Check your Telegram service chat and SMS, then use the secure login page to enter the latest code.\n\n' +
-            '🔐 Login page: ' + loginUrl + '\n\n/cancel to stop.'
+            'Check your Telegram service chat and SMS. Enter the latest code you received.\n\n/cancel to stop.'
           );
         } else {
           const delivery = result.isCodeViaApp
@@ -399,10 +357,9 @@ export function registerAccountHandlers(bot, config) {
           await ctx.reply(
             '4/4 📩 Login code requested.\n\n' +
             delivery + '\n\n' +
-            'Check Telegram Service Notifications and your SMS.\n' +
-            '🔐 Enter the latest code on the secure login page:\n' +
-            loginUrl + '\n\n' +
-            '⚠️ Do not send the login code in this Telegram chat.\n\n/cancel to stop.'
+            'Check Telegram Service Notifications and your SMS. Send the latest code here.\n' +
+            '⚠️ Do not screenshot, forward, or share the login-code message; Telegram can invalidate such codes.\n\n' +
+            '/cancel to stop.'
           );
         }
       } catch (error) {
@@ -501,11 +458,10 @@ export function registerAccountHandlers(bot, config) {
         ) {
           pending.set(ctx.from.id, { step: 'code', accountId: account._id });
           await ctx.reply(
-            '❌ That Telegram login code is no longer valid.\n\n' +
-            '⚠️ I will not request another code automatically, because that can invalidate the active challenge.\n\n' +
-            'Use /cancel, then start Add Account again to request exactly one fresh code.'
-          );
-          return;
+            '❌ That Telegram login code is no longer valid.\\n\\n' +
+            '⚠️ I will not request another code automatically, because that can invalidate the active challenge.\\n\\n' +
+            'Use /cancel, then start Add Account again to request exactly one fresh code. Enter only that latest code.'
+          );         return;
         }
 
         if (state.step === 'password') {
