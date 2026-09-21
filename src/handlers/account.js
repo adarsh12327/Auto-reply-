@@ -441,57 +441,26 @@ export function registerAccountHandlers(bot, config) {
       } catch (error) {
         const errorText = telegramErrorText(error);
 
-        // An expired hash/code is recoverable. Request a fresh code and
-        // replace the stored hash so the next OTP belongs to this attempt.
-        if (
-          state.step === 'code' &&
-          (errorText.includes('PHONE_CODE_EXPIRED') || errorText.includes('PHONE_CODE_HASH_INVALID'))
-        ) {
-          try {
-            const resend = await sendLoginCode(account, config, { force: true });
-
-            if (resend.sent) {
-              pending.set(ctx.from.id, { step: 'code', accountId: account._id });
-              await ctx.reply(
-                '⚠️ The previous Telegram login code expired or was no longer valid.\n\n' +
-                '📩 I requested a fresh code. Please enter the latest code from Telegram.'
-              );
-              return;
-            }
-          } catch (resendError) {
-            account.lastError = resendError?.message || String(resendError);
-            await account.save();
-            await ctx.reply(
-              '❌ The Telegram code expired, and a fresh code could not be requested right now.\n\n' +
-              'Please wait a little and try again, or /cancel.'
-            );
-            return;
-          }
-        }
-
+        // Do not automatically request another Telegram code after a
+        // verification failure. Resending replaces the active challenge and
+        // can make a valid code appear as already shared/expired.
+        account.loginCodeVerifyingAt = null;
         account.lastError = error.message;
         await account.save();
 
-        if (state.step === 'code' && errorText.includes('PHONE_CODE_INVALID')) {
-          try {
-            const sms = await sendLoginCode(account, config, { force: true });
-
-            if (sms.sent) {
-              pending.set(ctx.from.id, { step: 'code', accountId: account._id });
-              await ctx.reply(
-                '⚠️ Telegram rejected that code.\n\n' +
-                '📩 I requested a fresh SMS verification code. Please enter the NEW code from SMS.'
-              );
-              return;
-            }
-          } catch (smsError) {
-            account.lastError = smsError?.message || String(smsError);
-            await account.save();
-          }
-
+        if (
+          state.step === 'code' &&
+          (
+            errorText.includes('PHONE_CODE_INVALID') ||
+            errorText.includes('PHONE_CODE_EXPIRED') ||
+            errorText.includes('PHONE_CODE_HASH_INVALID')
+          )
+        ) {
+          pending.set(ctx.from.id, { step: 'code', accountId: account._id });
           await ctx.reply(
-            '❌ Invalid Telegram login code.\n\n' +
-            'Enter the latest code from Telegram/SMS. Do not use an older code.'
+            '❌ That Telegram login code is no longer valid.\\n\\n' +
+            '⚠️ I will not request another code automatically, because that can invalidate the active challenge.\\n\\n' +
+            'Use /cancel, then start Add Account again to request exactly one fresh code. Enter only that latest code.'
           );
           return;
         }
