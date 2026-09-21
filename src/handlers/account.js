@@ -191,7 +191,7 @@ export function registerAccountHandlers(bot, config) {
             loginStep: null,
             loginCodeSendingAt: null,
             loginCodeVerifyingAt: null,
-            loginPhoneCodeHashEncrypted: null,
+            loginPhoneCodeHashEncrypted: null
           }
         }
       );
@@ -461,7 +461,8 @@ export function registerAccountHandlers(bot, config) {
             '❌ That Telegram login code is no longer valid.\\n\\n' +
             '⚠️ I will not request another code automatically, because that can invalidate the active challenge.\\n\\n' +
             'Use /cancel, then start Add Account again to request exactly one fresh code. Enter only that latest code.'
-          );         return;
+          );
+          return;
         }
 
         if (state.step === 'password') {
