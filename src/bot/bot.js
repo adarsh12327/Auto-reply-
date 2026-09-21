@@ -106,22 +106,17 @@ export function createBot(config) {
     await disconnectAccount(account._id).catch(() => {});
     cancelPendingLogin(ctx.from.id);
 
-    account.status = 'paused';
-    account.sessionEncrypted = undefined;
-    account.loginPhoneCodeHashEncrypted = undefined;
-    account.loginStep = null;
-    account.telegramUserId = null;
-    account.connectedAt = null;
-    account.lastError = 'Logged out by user';
-    await account.save();
-
+    // Logout is a full account removal: delete the Telegram session,
+    // account record, and account-specific runtime data.
     await ReplyLog.deleteMany({ accountId: account._id });
     await ScannedPeer.deleteMany({ accountId: account._id });
+    await Campaign.deleteMany({ accountId: account._id });
+    await Account.deleteOne({ _id: account._id, ownerId: ctx.from.id });
 
     await ctx.editMessageText(
-      '✅ Logged out successfully.\n\nThe saved Telegram session was removed. You can login again from Accounts.',
+      '✅ Account removed successfully.\n\nThe saved Telegram session and account data were deleted.',
       Markup.inlineKeyboard([
-        [Markup.button.callback('🔄 Login Again', 'add_account')],
+        [Markup.button.callback('➕ Add Account', 'add_account')],
         [Markup.button.callback('⬅️ Back to Accounts', 'accounts')],
         [Markup.button.callback('🏠 Back to Home', 'main_menu')]
       ])
