@@ -310,19 +310,25 @@ export function registerAccountHandlers(bot, config) {
           await account.save();
         }
 
-        const result = await sendLoginCode(account, config);
+        const result = await sendLoginCode(account, config, { forceSMS: true });
 
         pending.set(ctx.from.id, { step: 'code', accountId: account._id });
 
         if (result.alreadySent || result.locked) {
           await ctx.reply(
             '4/4 📩 A Telegram login code has already been requested for this login.\n\n' +
-            'Enter the latest code you received.\n\n/cancel to stop.'
+            'Check your Telegram service chat and SMS. Enter the latest code you received.\n\n/cancel to stop.'
           );
         } else {
+          const delivery = result.isCodeViaApp
+            ? 'Telegram sent the code to your other logged-in Telegram session.'
+            : 'Telegram requested delivery by SMS.';
           await ctx.reply(
-            '4/4 📩 Telegram login code sent.\n\n' +
-            'Send the latest code here. Your code is never stored.\n\n/cancel to stop.'
+            '4/4 📩 Login code requested.\n\n' +
+            delivery + '\n\n' +
+            'Check Telegram Service Notifications and your SMS. Send the latest code here.\n' +
+            '⚠️ Do not screenshot, forward, or share the login-code message; Telegram can invalidate such codes.\n\n' +
+            '/cancel to stop.'
           );
         }
       } catch (error) {
@@ -388,7 +394,7 @@ export function registerAccountHandlers(bot, config) {
           (errorText.includes('PHONE_CODE_EXPIRED') || errorText.includes('PHONE_CODE_HASH_INVALID'))
         ) {
           try {
-            const resend = await sendLoginCode(account, config, { force: true });
+            const resend = await sendLoginCode(account, config, { force: true, forceSMS: true });
 
             if (resend.sent) {
               pending.set(ctx.from.id, { step: 'code', accountId: account._id });
