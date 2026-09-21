@@ -98,6 +98,7 @@ async function sendLoginCode(account, config, { force = false, forceSMS = false 
     locked.loginPhoneCodeHashEncrypted = encryptText(result.phoneCodeHash, config.encryptionKey);
     locked.loginCodeSentAt = new Date();
     locked.loginCodeSendingAt = null;
+    locked.loginCodeVerifyingAt = null;
     locked.loginStep = 'code';
     locked.lastError = '';
     await locked.save();
@@ -189,6 +190,7 @@ export function registerAccountHandlers(bot, config) {
             lastError: 'Login cancelled',
             loginStep: null,
             loginCodeSendingAt: null,
+            loginCodeVerifyingAt: null,
             loginPhoneCodeHashEncrypted: null
           }
         }
@@ -364,6 +366,7 @@ export function registerAccountHandlers(bot, config) {
         account.status = 'error';
         account.loginStep = null;
         account.loginCodeSendingAt = null;
+        account.loginCodeVerifyingAt = null;
         account.lastError = error.message;
         await account.save();
         pending.delete(ctx.from.id);
@@ -392,9 +395,31 @@ export function registerAccountHandlers(bot, config) {
             return;
           }
 
-          const result = await finishLogin(account, config, code);
+          // Telegram/webhook retries can deliver the same OTP update twice.
+          // Only one invocation may verify the code or request a replacement.
+          const staleVerifyLock = new Date(Date.now() - 60 * 1000);
+          const verifyLock = await Account.findOneAndUpdate(
+            {
+              _id: account._id,
+              ownerId: ctx.from.id,
+              status: 'pending',
+              loginStep: 'code',
+              $or: [
+                { loginCodeVerifyingAt: null },
+                { loginCodeVerifyingAt: { $exists: false } },
+                { loginCodeVerifyingAt: { $lt: staleVerifyLock } }
+              ]
+            },
+            { $set: { loginCodeVerifyingAt: new Date() } },
+            { new: true }
+          ).select('+apiHashEncrypted +phoneEncrypted +sessionEncrypted +loginPhoneCodeHashEncrypted');
+
+          if (!verifyLock) return;
+
+          const result = await finishLogin(verifyLock, config, code);
 
           if (result.passwordRequired) {
+            await Account.updateOne({ _id: account._id }, { $set: { loginCodeVerifyingAt: null } });
             pending.set(ctx.from.id, { step: 'password', accountId: account._id });
             await ctx.reply('🔑 Your Telegram account has 2-step verification enabled. Send the 2FA password:');
             return;
