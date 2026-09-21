@@ -50,7 +50,7 @@ function telegramErrorText(error) {
   return String(error?.errorMessage || error?.message || error || '').toUpperCase();
 }
 
-async function sendLoginCode(account, config, { force = false } = {}) {
+async function sendLoginCode(account, config, { force = false, forceSMS = false } = {}) {
   const now = Date.now();
   const sentAt = account.loginCodeSentAt ? new Date(account.loginCodeSentAt).getTime() : 0;
 
@@ -90,7 +90,8 @@ async function sendLoginCode(account, config, { force = false } = {}) {
 
     const result = await client.sendCode(
       { apiId: locked.apiId, apiHash: created.apiHash },
-      created.phone
+      created.phone,
+      forceSMS
     );
 
     locked.sessionEncrypted = encryptText(client.session.save(), config.encryptionKey);
@@ -412,9 +413,25 @@ export function registerAccountHandlers(bot, config) {
         await account.save();
 
         if (state.step === 'code' && errorText.includes('PHONE_CODE_INVALID')) {
+          try {
+            const sms = await sendLoginCode(account, config, { force: true, forceSMS: true });
+
+            if (sms.sent) {
+              pending.set(ctx.from.id, { step: 'code', accountId: account._id });
+              await ctx.reply(
+                '⚠️ Telegram rejected that code.\n\n' +
+                '📩 I requested a fresh SMS verification code. Please enter the NEW code from SMS.'
+              );
+              return;
+            }
+          } catch (smsError) {
+            account.lastError = smsError?.message || String(smsError);
+            await account.save();
+          }
+
           await ctx.reply(
             '❌ Invalid Telegram login code.\n\n' +
-            'Enter the latest code from Telegram. Do not use an older code.'
+            'Enter the latest code from Telegram/SMS. Do not use an older code.'
           );
           return;
         }
