@@ -170,6 +170,35 @@ async function finishLogin(account, config, code, password = null) {
 }
 
 export function registerAccountHandlers(bot, config) {
+  // Handle /cancel as a real Telegram command as well as plain text.
+  // This is more reliable when Telegraf receives the update as a command
+  // and the serverless invocation has no in-memory pending state.
+  bot.command('cancel', async ctx => {
+    const account = await Account.findOne({
+      ownerId: ctx.from.id,
+      status: 'pending',
+      loginStep: { $in: ['code', 'password'] }
+    }).sort({ updatedAt: -1 });
+
+    if (account) {
+      await Account.updateOne(
+        { _id: account._id, ownerId: ctx.from.id, status: 'pending' },
+        {
+          $set: {
+            status: 'error',
+            lastError: 'Login cancelled',
+            loginStep: null,
+            loginCodeSendingAt: null,
+            loginPhoneCodeHashEncrypted: null
+          }
+        }
+      );
+    }
+
+    pending.delete(ctx.from.id);
+    await ctx.reply('❌ Login cancelled.', mainKeyboard());
+  });
+
   bot.action('add_account', async ctx => {
     await ctx.answerCbQuery();
     pending.set(ctx.from.id, { step: 'api_id' });
