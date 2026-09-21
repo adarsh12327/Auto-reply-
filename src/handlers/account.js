@@ -339,7 +339,7 @@ export function registerAccountHandlers(bot, config) {
           await account.save();
         }
 
-        const result = await sendLoginCode(account, config, { forceSMS: true });
+        const result = await sendLoginCode(account, config);
 
         pending.set(ctx.from.id, { step: 'code', accountId: account._id });
 
@@ -423,7 +423,7 @@ export function registerAccountHandlers(bot, config) {
           (errorText.includes('PHONE_CODE_EXPIRED') || errorText.includes('PHONE_CODE_HASH_INVALID'))
         ) {
           try {
-            const resend = await sendLoginCode(account, config, { force: true, forceSMS: true });
+            const resend = await sendLoginCode(account, config, { force: true });
 
             if (resend.sent) {
               pending.set(ctx.from.id, { step: 'code', accountId: account._id });
@@ -449,7 +449,7 @@ export function registerAccountHandlers(bot, config) {
 
         if (state.step === 'code' && errorText.includes('PHONE_CODE_INVALID')) {
           try {
-            const sms = await sendLoginCode(account, config, { force: true, forceSMS: true });
+            const sms = await sendLoginCode(account, config, { force: true });
 
             if (sms.sent) {
               pending.set(ctx.from.id, { step: 'code', accountId: account._id });
