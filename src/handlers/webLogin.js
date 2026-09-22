@@ -180,6 +180,13 @@ async function findAccount(token, config) {
   throw new Error('This secure login session is invalid or expired. Start Add Account again.');
 }
 
+async function saveSession(account, client, encryptionKey) {
+  if (!client?.session) {
+    throw new Error('Telegram login session is unavailable.');
+  }
+  account.sessionEncrypted = encryptText(client.session.save(), encryptionKey);
+}
+
 async function createClient(account, config) {
   const apiHash = decryptText(account.apiHashEncrypted, config.encryptionKey);
   const session = account.sessionEncrypted
