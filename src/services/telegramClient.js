@@ -298,6 +298,43 @@ export async function listWritableGroups(accountId) {
 }
 
 
+export async function syncIncomingDmConsents(accountId, ownerId) {
+  const client = getClient(accountId);
+  if (!client?.connected) throw new Error('Telegram account is not connected');
+
+  const me = await client.getMe();
+  let authorized = 0;
+
+  for await (const dialog of client.iterDialogs({})) {
+    const entity = dialog.entity;
+    if (!entity || !(entity instanceof Api.User)) continue;
+    if (entity.bot || entity.self || String(entity.id) === String(me.id)) continue;
+
+    const latest = dialog.message;
+    if (!latest || latest.out) continue;
+
+    const senderId = latest.senderId == null ? null : String(latest.senderId);
+    if (!senderId || senderId !== String(entity.id)) continue;
+
+    await Consent.findOneAndUpdate(
+      { ownerId, recipientId: senderId },
+      {
+        $set: {
+          active: true,
+          source: 'user_reply',
+          revokedAt: null
+        },
+        $setOnInsert: { createdAt: new Date() }
+      },
+      { upsert: true }
+    );
+
+    authorized += 1;
+  }
+
+  return authorized;
+}
+
 export async function listPersonalDialogs(accountId) {
   const client = getClient(accountId);
   if (!client?.connected) throw new Error('Telegram account is not connected');
