@@ -435,15 +435,40 @@ ${error.message}`, backKeyboard());
   });
 
   bot.action('dm_new', async ctx => {
-    await ctx.answerCbQuery();
-    const account = await getConnectedAccount(ctx.from.id, config);
-    if (!account) return safeEdit(ctx, '❌ Connect your Telegram account first.', dmMenuKeyboard());
-    const campaign = await Campaign.create({ ownerId: ctx.from.id, accountId: account._id, type: 'dm', targetIds: [], message: '', delayMs: config.sendDelayMs || 3000 });
-    pendingDm.set(ctx.from.id, { messageId: ctx.callbackQuery.message.message_id, campaignId: campaign._id });
-    await ctx.editMessageText(
-      '✉️ New DM Campaign\n\nSend the message you want to save.\n\nAfter saving, choose the delay and press ▶️ Send DM.',
-      backKeyboard()
-    );
+    await ctx.answerCbQuery().catch(() => {});
+    try {
+      const account = await getConnectedAccount(ctx.from.id, config);
+      if (!account) {
+        return safeEdit(ctx, '❌ Connect your Telegram account first.', dmMenuKeyboard());
+      }
+
+      const campaign = await Campaign.create({
+        ownerId: ctx.from.id,
+        accountId: account._id,
+        type: 'dm',
+        targetIds: [],
+        message: '',
+        delayMs: config.sendDelayMs || 3000
+      });
+
+      pendingDm.set(ctx.from.id, {
+        messageId: ctx.callbackQuery.message.message_id,
+        campaignId: campaign._id
+      });
+
+      await ctx.editMessageText(
+        '✉️ New DM Campaign\\n\\nSend the message you want to save.\\n\\nAfter saving, choose the delay and press ▶️ Send DM.',
+        backKeyboard()
+      );
+    } catch (error) {
+      console.error('Create DM campaign failed:', error);
+      await safeEdit(
+        ctx,
+        '❌ Could not create the campaign.\\n\\n' +
+          (error?.message || 'Please try again.'),
+        dmMenuKeyboard()
+      ).catch(() => {});
+    }
   });
 
   async function renderScannedRecipients(ctx, campaignId, page = 0) {
