@@ -194,7 +194,7 @@ async function startDmCampaign(ctx, campaign, config) {
     dmRunningKeyboard(campaign._id)
   );
 
-  runCampaign(campaign._id, {
+  await runCampaign(campaign._id, {
     delayMs: campaign.delayMs,
     requireConsent: config.requireConsent,
     requireGroupPermission: config.requireGroupPermission,
