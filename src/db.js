@@ -12,7 +12,9 @@ const userSchema = new Schema({
   referrals: { type: Number, default: 0 },
   referralEarned: { type: Number, default: 0 },
   createdAt: { type: Date, default: Date.now },
-  lastSeenAt: { type: Date, default: Date.now }
+  lastSeenAt: { type: Date, default: Date.now },
+  telegramApiId: { type: Number, default: null },
+  telegramApiHashEncrypted: { type: String, select: false, default: null }
 });
 
 const accountSchema = new Schema({
