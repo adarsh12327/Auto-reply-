@@ -76,7 +76,7 @@ const campaignSchema = new Schema({
   accountId: { type: Schema.Types.ObjectId, required: true },
   type: { type: String, enum: ['dm', 'group', 'channel'], required: true },
   targetIds: [String],
-  message: { type: String, required: true },
+  message: { type: String, default: '' },
   delayMs: { type: Number, default: 20000, min: 1000 },
   status: { type: String, enum: ['draft', 'scheduled', 'running', 'paused', 'completed', 'cancelled', 'failed'], default: 'draft' },
   scheduledAt: Date,
