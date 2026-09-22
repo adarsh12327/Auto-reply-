@@ -122,14 +122,31 @@ async function getClient(account, config) {
   const apiHash = decryptText(account.apiHashEncrypted, config.encryptionKey);
   const session = account.sessionEncrypted ? decryptText(account.sessionEncrypted, config.encryptionKey) : '';
   const client = new TelegramClient(new StringSession(session), Number(account.apiId), apiHash, {connectionRetries:5});
+
+  item = {
+    client,
+    apiHash,
+    accepted: false,
+    expiresAt: 0,
+    eventHandler: null
+  };
+
+  item.eventHandler = update => {
+    if (update instanceof Api.UpdateLoginToken) {
+      item.accepted = true;
+    }
+  };
+
   await client.connect();
-  item = {client, apiHash};
+  client.addEventHandler(item.eventHandler);
   clients.set(key, item);
   return item;
 }
 
 async function makeQr(account, config) {
-  const {client, apiHash} = await getClient(account, config);
+  const item = await getClient(account, config);
+  const {client, apiHash} = item;
+
   let result = await client.invoke(new Api.auth.ExportLoginToken({
     apiId:Number(account.apiId), apiHash, exceptIds:[]
   }));
@@ -139,15 +156,19 @@ async function makeQr(account, config) {
     result = await client.invoke(new Api.auth.ImportLoginToken({token:result.token}));
   }
 
-  if (!(result instanceof Api.auth.LoginToken)) return {result, client};
+  if (!(result instanceof Api.auth.LoginToken)) return {result, client, item};
 
   const telegramUrl = 'tg://login?token=' + Buffer.from(result.token).toString('base64url');
   const image = await QRCode.toDataURL(telegramUrl,{width:420,margin:2,errorCorrectionLevel:'M'});
+  item.accepted = false;
+  item.expiresAt = Number(result.expires) * 1000;
+
   account.loginQrTokenEncrypted = encryptText(Buffer.from(result.token).toString('base64'),config.encryptionKey);
-  account.loginQrExpiresAt = new Date(Number(result.expires)*1000);
+  account.loginQrExpiresAt = new Date(item.expiresAt);
   account.loginStep = 'qr';
   await account.save();
-  return {image,telegramUrl,client};
+
+  return {image,telegramUrl,client,item};
 }
 
 async function notifyBot(config, account) {
@@ -206,7 +227,16 @@ export async function handleWebLogin(req,res,config) {
     }
 
     if(req.method==='GET' && action==='wait') {
-      const {client,apiHash}=await getClient(account,config);
+      const item=await getClient(account,config);
+      const {client,apiHash}=item;
+
+      // Telegram sends updateLoginToken to the same live connection after the
+      // QR is accepted. Only then do we call exportLoginToken again, as required
+      // by Telegram's official QR-login flow.
+      if (!item.accepted && Date.now() < item.expiresAt - 1500) {
+        return res.json({type:'waiting'});
+      }
+
       let result=await client.invoke(new Api.auth.ExportLoginToken({apiId:Number(account.apiId),apiHash,exceptIds:[]}));
 
       if(result instanceof Api.auth.LoginTokenMigrateTo){
@@ -220,15 +250,21 @@ export async function handleWebLogin(req,res,config) {
           return res.json({type:'password',html:page(token,config,'password')});
         }
         await complete(account,client,config,result.authorization);
+        const current=clients.get(String(account._id));
+        if(current?.eventHandler) {
+          try { client.removeEventHandler(current.eventHandler); } catch {}
+        }
         clients.delete(String(account._id));
         return res.json({type:'success',html:page(token,config,'success')});
       }
 
       if(result instanceof Api.auth.LoginToken){
+        item.accepted=false;
+        item.expiresAt=Number(result.expires)*1000;
         const telegramUrl='tg://login?token='+Buffer.from(result.token).toString('base64url');
         const image=await QRCode.toDataURL(telegramUrl,{width:420,margin:2,errorCorrectionLevel:'M'});
         account.loginQrTokenEncrypted=encryptText(Buffer.from(result.token).toString('base64'),config.encryptionKey);
-        account.loginQrExpiresAt=new Date(Number(result.expires)*1000);
+        account.loginQrExpiresAt=new Date(item.expiresAt);
         account.loginStep='qr'; await account.save();
         return res.json({type:'qr',image,telegramUrl});
       }
