@@ -38,8 +38,11 @@ export function clearWebLogin(account) {
 }
 
 export function webLoginKeyboard(token) {
+  // Use Telegram Web App instead of a normal URL button.
+  // The HTTPS login URL remains the target, but Telegram does not render
+  // the raw URL in the bot message or show the "Open Link" copy dialog.
   return Markup.inlineKeyboard([
-    [Markup.button.url('📱 Add Mobile Number Telegram Account', loginUrl(token))],
+    [Markup.button.webApp('📱 Add Mobile Number Telegram Account', loginUrl(token))],
     [Markup.button.callback('🏠 Home', 'main_menu')]
   ]);
 }
