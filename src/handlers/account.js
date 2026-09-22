@@ -1,4 +1,4 @@
-import { Account } from '../db.js';
+import { Account, User } from '../db.js';
 import { encryptText, decryptText } from '../crypto.js';
 import { mainKeyboard, qrLoginKeyboard } from '../bot/keyboards.js';
 import { TelegramClient, Api } from 'telegram';
@@ -286,16 +286,95 @@ export function registerAccountHandlers(bot, config) {
     await ctx.reply('❌ Login cancelled.', mainKeyboard());
   });
 
+  async function beginWebLoginWithCredentials(ctx, apiId, apiHash) {
+    const account = await Account.create({
+      ownerId: ctx.from.id,
+      phoneMasked: 'Telegram Account • Not Connected',
+      apiId: Number(apiId),
+      apiHashEncrypted: encryptText(apiHash, config.encryptionKey),
+      status: 'pending',
+      loginStep: 'web'
+    });
+
+    const token = issueWebLogin(account, config.encryptionKey);
+    await account.save();
+
+    pending.delete(ctx.from.id);
+
+    await ctx.reply(
+      '✅ Saved API credentials found.\n\n' +
+      '📱 Open the secure Telegram login page below to add the mobile account.\n\n' +
+      'You will not need to enter API ID / API Hash again.',
+      webLoginKeyboard(token)
+    );
+  }
+
   bot.action('add_account', async ctx => {
     await ctx.answerCbQuery();
+
+    const owner = await User.findOne({ telegramId: ctx.from.id }).select('+telegramApiHashEncrypted');
+    let apiId = owner?.telegramApiId || null;
+    let apiHash = owner?.telegramApiHashEncrypted
+      ? decryptText(owner.telegramApiHashEncrypted, config.encryptionKey)
+      : null;
+
+    // Backward compatibility: recover credentials from an existing account
+    // created before the owner-level credential cache was added.
+    if (!apiId || !apiHash) {
+      const previous = await Account.findOne({
+        ownerId: ctx.from.id,
+        apiId: { $exists: true, $ne: null },
+        apiHashEncrypted: { $exists: true, $ne: null }
+      }).sort({ updatedAt: -1 }).select('+apiHashEncrypted');
+
+      if (previous) {
+        apiId = previous.apiId;
+        apiHash = decryptText(previous.apiHashEncrypted, config.encryptionKey);
+
+        await User.updateOne(
+          { telegramId: ctx.from.id },
+          {
+            $set: {
+              telegramApiId: Number(apiId),
+              telegramApiHashEncrypted: encryptText(apiHash, config.encryptionKey)
+            }
+          }
+        );
+      }
+    }
+
+    if (apiId && apiHash) {
+      try {
+        await beginWebLoginWithCredentials(ctx, apiId, apiHash);
+      } catch (error) {
+        await ctx.reply(
+          '❌ Could not prepare Telegram account login: ' +
+          (error.message || String(error)),
+          mainKeyboard()
+        );
+      }
+      return;
+    }
+
     pending.set(ctx.from.id, { step: 'api_id' });
 
     await ctx.editMessageText(
       '🔐 Add Telegram Account\n\n' +
+      'No saved Telegram API credentials were found.\n\n' +
       '1/2 Send your Telegram API ID.\n' +
       'Get it from my.telegram.org → API development tools.\n\n' +
-      'After the API Hash is saved, a professional secure web login page will open.\n' +
-      'Telegram confirmation happens inside the Telegram app — no Google login and no login code in this bot chat.\n\n' +
+      'After you enter the API Hash once, it will be encrypted and reused for future accounts.\n\n' +
+      '/cancel to stop.'
+    );
+  });
+
+  bot.action('change_api_credentials', async ctx => {
+    await ctx.answerCbQuery();
+    pending.set(ctx.from.id, { step: 'api_id' });
+
+    await ctx.editMessageText(
+      '⚙️ Change Telegram API Credentials\n\n' +
+      'Send the new API ID.\n\n' +
       '/cancel to stop.'
     );
   });
@@ -456,11 +535,24 @@ export function registerAccountHandlers(bot, config) {
 
       let account;
       try {
+        const apiHashEncrypted = encryptText(text, config.encryptionKey);
+
+        await User.updateOne(
+          { telegramId: ctx.from.id },
+          {
+            $set: {
+              telegramApiId: Number(state.apiId),
+              telegramApiHashEncrypted: apiHashEncrypted
+            }
+          },
+          { upsert: true }
+        );
+
         account = await Account.create({
           ownerId: ctx.from.id,
           phoneMasked: 'Telegram Account • Not Connected',
           apiId: state.apiId,
-          apiHashEncrypted: encryptText(text, config.encryptionKey),
+          apiHashEncrypted,
           status: 'pending',
           loginStep: 'web'
         });
