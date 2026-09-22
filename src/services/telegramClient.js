@@ -310,10 +310,21 @@ export async function syncIncomingDmConsents(accountId, ownerId) {
     if (!entity || !(entity instanceof Api.User)) continue;
     if (entity.bot || entity.self || String(entity.id) === String(me.id)) continue;
 
-    const latest = dialog.message;
-    if (!latest || latest.out) continue;
+    let incoming = null;
 
-    const senderId = latest.senderId == null ? null : String(latest.senderId);
+    // Check recent message history, not only dialog.message. A conversation
+    // may have an outgoing message as its latest message even though the
+    // other person previously contacted this account.
+    for await (const message of client.iterMessages(entity, { limit: 20 })) {
+      if (!message?.out) {
+        incoming = message;
+        break;
+      }
+    }
+
+    if (!incoming) continue;
+
+    const senderId = incoming.senderId == null ? null : String(incoming.senderId);
     if (!senderId || senderId !== String(entity.id)) continue;
 
     await Consent.findOneAndUpdate(
