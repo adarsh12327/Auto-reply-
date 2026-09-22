@@ -394,6 +394,13 @@ async function verifyCode(account, config, code) {
     throw new Error('No active Telegram verification request. Send the mobile number again.');
   }
 
+  if (account.loginCodeVerifyingAt) {
+    const age = Date.now() - account.loginCodeVerifyingAt.getTime();
+    if (age < 60 * 1000) {
+      throw new Error('Verification is already in progress. Please wait a moment.');
+    }
+  }
+
   account.loginCodeVerifyingAt = new Date();
   await account.save();
 
@@ -420,6 +427,22 @@ async function verifyCode(account, config, code) {
         account.lastError = '';
         await account.save();
         return { passwordRequired: true };
+      }
+
+      if (upper.includes('PHONE_CODE_INVALID')) {
+        account.loginCodeVerifyingAt = null;
+        account.lastError = 'PHONE_CODE_INVALID';
+        await account.save();
+        throw new Error('The Telegram code is incorrect. Please enter the latest code again.');
+      }
+
+      if (upper.includes('PHONE_CODE_EXPIRED') || upper.includes('PHONE_CODE_EMPTY')) {
+        account.loginCodeVerifyingAt = null;
+        account.lastError = upper.includes('PHONE_CODE_EMPTY')
+          ? 'PHONE_CODE_EMPTY'
+          : 'PHONE_CODE_EXPIRED';
+        await account.save();
+        throw new Error('This Telegram code has expired. Tap “Resend Code” to request a new code.');
       }
 
       throw error;
