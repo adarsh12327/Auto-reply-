@@ -4,66 +4,13 @@ import { mainKeyboard } from '../bot/keyboards.js';
 import { TelegramClient, Api } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
 import { Markup } from 'telegraf';
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { createUserClient, attachAutoReply } from '../services/telegramClient.js';
 
 const TTL = 10 * 60 * 1000;
 const RESEND_COOLDOWN_MS = 30 * 1000;
 
 const hashToken = value => createHash('sha256').update(value).digest('hex');
-
-function validateWebAppInitData(raw, botToken, expectedUserId) {
-  if (!raw || !botToken) {
-    throw new Error('Open this login page from the Telegram bot button.');
-  }
-
-  const params = new URLSearchParams(raw);
-  const receivedHash = params.get('hash');
-
-  if (!receivedHash || !/^[a-f0-9]{64}$/i.test(receivedHash)) {
-    throw new Error('Telegram Web App authorization data is missing or invalid.');
-  }
-
-  params.delete('hash');
-
-  const dataCheckString = [...params.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => key + '=' + value)
-    .join('\\n');
-
-  const secretKey = createHmac('sha256', 'WebAppData')
-    .update(botToken)
-    .digest();
-
-  const calculatedHash = createHmac('sha256', secretKey)
-    .update(dataCheckString)
-    .digest('hex');
-
-  const expected = Buffer.from(calculatedHash, 'hex');
-  const received = Buffer.from(receivedHash, 'hex');
-
-  if (expected.length !== received.length || !timingSafeEqual(expected, received)) {
-    throw new Error('Telegram Web App authorization could not be verified.');
-  }
-
-  const authDate = Number(params.get('auth_date'));
-  if (!Number.isFinite(authDate) || Math.abs(Date.now() / 1000 - authDate) > 10 * 60) {
-    throw new Error('Telegram Web App authorization has expired. Reopen the login button.');
-  }
-
-  let user;
-  try {
-    user = JSON.parse(params.get('user') || 'null');
-  } catch {
-    throw new Error('Telegram Web App user data is invalid.');
-  }
-
-  if (!user?.id || Number(user.id) !== Number(expectedUserId)) {
-    throw new Error('This Telegram login session belongs to a different user.');
-  }
-
-  return user;
-}
 
 function botUrl(config) {
   return config.botUsername ? 'https://t.me/' + config.botUsername : 'https://t.me/';
@@ -531,12 +478,6 @@ export async function handleWebLogin(req, res, config) {
     if (req.method !== 'POST') {
       throw new Error('Method not allowed.');
     }
-
-    validateWebAppInitData(
-      req.headers?.['x-telegram-init-data'] || req.headers?.['X-Telegram-Init-Data'] || '',
-      config.botToken,
-      account.ownerId
-    );
 
     let body = req.body;
     if (typeof body === 'string') {
