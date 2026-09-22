@@ -86,7 +86,7 @@ function escapeHtml(value) {
 
 function loginWebPage({ token, state = 'loading', qr = '', telegramUrl = '', message = '', error = '', botLink = 'https://t.me/' }) {
   const body = state === 'loading'
-    ? '<div class="spinner"></div><h1>Preparing secure login</h1><p class="muted">Connecting to Telegram…</p>'
+    ? '<div class="brand">KAP</div><div class="badge">SECURE TELEGRAM LOGIN</div><h1>Preparing secure login</h1><p class="muted">Connecting to Telegram…</p><div class="qr-wrap"><img id="qr" src="" alt="Telegram QR Login"></div><a class="primary" href="#">📲 Open in Telegram App</a><div class="steps">Keep this page open. The secure QR will appear automatically and will refresh when needed.</div><div id="status" class="status">Connecting…</div>'
     : state === 'qr'
       ? '<div class="brand">KAP</div><div class="badge">SECURE TELEGRAM LOGIN</div><h1>Connect Telegram Account</h1><p class="muted">Approve this login from your Telegram app. No Google login and no Telegram login code is used.</p><div class="qr-wrap"><img id="qr" src="' + escapeHtml(qr) + '" alt="Telegram QR Login"></div><a class="primary" href="' + escapeHtml(telegramUrl) + '">📲 Open in Telegram App</a><div class="steps"><b>Continue in Telegram</b><br>1. Tap “Open in Telegram App” or scan the QR.<br>2. Confirm the new login in Telegram.<br>3. Keep this page open — it checks automatically.</div><div id="status" class="status">Waiting for Telegram confirmation…</div>'
       : state === 'password'
@@ -153,7 +153,12 @@ async function webLoginWait(account, config, token, res) {
     if (!(update instanceof Api.UpdateLoginToken)) return;
     try {
       const result = await exportQrAfterUpdate(client, account, apiHash);
-      if (result instanceof Api.auth.LoginTokenSuccess && result.authorization instanceof Api.auth.Authorization) {
+      if (result instanceof Api.auth.LoginTokenMigrateTo) {
+      await client._switchDC(result.dcId);
+      result = await client.invoke(new Api.auth.ImportLoginToken({ token: result.token }));
+    }
+
+    if (result instanceof Api.auth.LoginTokenSuccess && result.authorization instanceof Api.auth.Authorization) {
         const done = await finalizeWebQr(account, client, config, result.authorization);
         if (done.passwordRequired) {
           await close({ type: 'password', html: loginWebPage({ token, state: 'password', botLink: botUrl(config) }) });
@@ -527,7 +532,7 @@ export function registerAccountHandlers(bot, config) {
     const account = await Account.findOne({
       ownerId: ctx.from.id,
       status: 'pending',
-      loginStep: { $in: ['qr', 'password'] }
+      loginStep: { $in: ['web', 'qr', 'password'] }
     }).sort({ updatedAt: -1 });
 
     if (account) {
@@ -559,8 +564,8 @@ export function registerAccountHandlers(bot, config) {
       '🔐 Add Telegram Account\n\n' +
       '1/2 Send your Telegram API ID.\n' +
       'Get it from my.telegram.org → API development tools.\n\n' +
-      'After the API Hash, the bot will show a Telegram QR code.\n' +
-      'You will NOT need to send a Telegram login code to this bot.\n\n' +
+      'After the API Hash is saved, a professional secure web login page will open.\n' +
+      'You will confirm the Telegram account inside the Telegram app — no Google login and no login code in this bot chat.\n\n' +
       '/cancel to stop.'
     );
   });
