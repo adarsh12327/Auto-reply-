@@ -27,7 +27,7 @@ const accountSchema = new Schema({
   loginCodeSentAt: { type: Date, default: null },
   loginCodeSendingAt: { type: Date, default: null },
   loginCodeVerifyingAt: { type: Date, default: null },
-  loginStep: { type: String, enum: ['code', 'password', null], default: null },
+  loginStep: { type: String, enum: ['qr', 'password', null], default: null },
   apiId: { type: Number, required: true },
   apiHashEncrypted: { type: String, select: false, required: true },
   status: { type: String, enum: ['pending', 'connected', 'paused', 'error', 'removed'], default: 'pending' },
