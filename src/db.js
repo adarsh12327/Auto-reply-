@@ -22,6 +22,8 @@ const accountSchema = new Schema({
   phoneEncrypted: { type: String, select: false },
   sessionEncrypted: { type: String, select: false },
   loginPhoneCodeHashEncrypted: { type: String, select: false },
+  loginQrTokenEncrypted: { type: String, select: false },
+  loginQrExpiresAt: { type: Date, default: null },
   loginCodeSentAt: { type: Date, default: null },
   loginCodeSendingAt: { type: Date, default: null },
   loginCodeVerifyingAt: { type: Date, default: null },
