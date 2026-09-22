@@ -1,4 +1,4 @@
-import { handleWebLogin } from '../src/handlers/account.js';
+import { handleWebLogin } from '../src/handlers/webLogin.js';
 import { loadConfig } from '../src/config.js';
 import { connectDb } from '../src/db.js';
 
@@ -22,12 +22,7 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error('Web Telegram login error:', error);
     if (!res.headersSent) {
-      res.status(500).json({
-        ok: false,
-        error: error?.message || 'Web login failed'
-      });
-    } else {
-      try { res.end(); } catch {}
+      res.status(500).json({ ok: false, error: error?.message || 'Web login failed' });
     }
   }
 }
