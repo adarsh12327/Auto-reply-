@@ -3,7 +3,9 @@
   "version": "3.0.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
@@ -13,6 +15,7 @@
     "dotenv": "^16.4.7",
     "mongoose": "^8.19.1",
     "telegraf": "^4.16.3",
-    "telegram": "^2.26.22"
+    "telegram": "^2.26.22",
+    "qrcode": "^1.5.4"
   }
 }
