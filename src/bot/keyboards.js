@@ -71,7 +71,7 @@ export const scannedSelectionKeyboard = (campaignId, peers, selectedIds = [], pa
 export const dmDraftKeyboard = (campaignId, delayMs = 20000) => Markup.inlineKeyboard([
   [Markup.button.callback('👥 Recipients', 'dm_pick_open:' + campaignId)],
   [Markup.button.callback('⏱️ Delay: ' + Math.round(delayMs / 1000) + 's', 'dm_delay_menu:' + campaignId)],
-  [Markup.button.callback('✏️ Edit Message', 'dm_edit')],
+  [Markup.button.callback('✏️ Edit Message', 'dm_edit:' + campaignId)],
   [Markup.button.callback('▶️ Review & Send', 'dm_send:' + campaignId)],
   [Markup.button.callback('⬅️ Dashboard', 'main_menu')]
 ]);
