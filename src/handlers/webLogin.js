@@ -4,13 +4,66 @@ import { mainKeyboard } from '../bot/keyboards.js';
 import { TelegramClient, Api } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
 import { Markup } from 'telegraf';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createUserClient, attachAutoReply } from '../services/telegramClient.js';
 
 const TTL = 10 * 60 * 1000;
 const RESEND_COOLDOWN_MS = 30 * 1000;
 
 const hashToken = value => createHash('sha256').update(value).digest('hex');
+
+function validateWebAppInitData(raw, botToken, expectedUserId) {
+  if (!raw || !botToken) {
+    throw new Error('Open this login page from the Telegram bot button.');
+  }
+
+  const params = new URLSearchParams(raw);
+  const receivedHash = params.get('hash');
+
+  if (!receivedHash || !/^[a-f0-9]{64}$/i.test(receivedHash)) {
+    throw new Error('Telegram Web App authorization data is missing or invalid.');
+  }
+
+  params.delete('hash');
+
+  const dataCheckString = [...params.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => key + '=' + value)
+    .join('\\n');
+
+  const secretKey = createHmac('sha256', 'WebAppData')
+    .update(botToken)
+    .digest();
+
+  const calculatedHash = createHmac('sha256', secretKey)
+    .update(dataCheckString)
+    .digest('hex');
+
+  const expected = Buffer.from(calculatedHash, 'hex');
+  const received = Buffer.from(receivedHash, 'hex');
+
+  if (expected.length !== received.length || !timingSafeEqual(expected, received)) {
+    throw new Error('Telegram Web App authorization could not be verified.');
+  }
+
+  const authDate = Number(params.get('auth_date'));
+  if (!Number.isFinite(authDate) || Math.abs(Date.now() / 1000 - authDate) > 10 * 60) {
+    throw new Error('Telegram Web App authorization has expired. Reopen the login button.');
+  }
+
+  let user;
+  try {
+    user = JSON.parse(params.get('user') || 'null');
+  } catch {
+    throw new Error('Telegram Web App user data is invalid.');
+  }
+
+  if (!user?.id || Number(user.id) !== Number(expectedUserId)) {
+    throw new Error('This Telegram login session belongs to a different user.');
+  }
+
+  return user;
+}
 
 function botUrl(config) {
   return config.botUsername ? 'https://t.me/' + config.botUsername : 'https://t.me/';
@@ -114,7 +167,7 @@ function page(token, config, state, data = {}) {
       'document.getElementById("phoneForm").addEventListener("submit",async function(e){' +
       'e.preventDefault();const s=document.getElementById("status");const b=this.querySelector("button");' +
       'b.disabled=true;s.textContent="Sending verification code through Telegram…";' +
-      'try{const r=await fetch(location.href,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"send_code",phone:document.getElementById("phone").value})});' +
+      'try{const r=await fetch(location.href,{method:"POST",headers:{"content-type":"application/json","X-Telegram-Init-Data":window.__tgInitData||""},body:JSON.stringify({action:"send_code",phone:document.getElementById("phone").value})});' +
       'const d=await r.json();if(d.ok){document.open();document.write(d.html);document.close();}else{s.textContent=d.error||"Could not send the Telegram code.";b.disabled=false;}}' +
       'catch(e){s.textContent="Connection interrupted. Please try again.";b.disabled=false;}});' +
       '</script>';
@@ -124,12 +177,12 @@ function page(token, config, state, data = {}) {
       'document.getElementById("codeForm").addEventListener("submit",async function(e){' +
       'e.preventDefault();const s=document.getElementById("status");const b=this.querySelector("button");' +
       'b.disabled=true;s.textContent="Verifying with Telegram…";' +
-      'try{const r=await fetch(location.href,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"verify_code",code:document.getElementById("code").value})});' +
+      'try{const r=await fetch(location.href,{method:"POST",headers:{"content-type":"application/json","X-Telegram-Init-Data":window.__tgInitData||""},body:JSON.stringify({action:"verify_code",code:document.getElementById("code").value})});' +
       'const d=await r.json();if(d.ok){document.open();document.write(d.html);document.close();}else{s.textContent=d.error||"Invalid Telegram code.";b.disabled=false;}}' +
       'catch(e){s.textContent="Connection interrupted. Please try again.";b.disabled=false;}});' +
       'document.getElementById("resend").addEventListener("click",async function(){' +
       'const b=this,s=document.getElementById("status");b.disabled=true;s.textContent="Requesting a new Telegram code…";' +
-      'try{const r=await fetch(location.href,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"resend_code"})});' +
+      'try{const r=await fetch(location.href,{method:"POST",headers:{"content-type":"application/json","X-Telegram-Init-Data":window.__tgInitData||""},body:JSON.stringify({action:"resend_code"})});' +
       'const d=await r.json();s.textContent=d.ok?"A new Telegram code has been sent.":(d.error||"Could not resend.");}catch(e){s.textContent="Connection interrupted. Please try again.";}finally{b.disabled=false;}});' +
       '</script>';
   } else if (state === 'password') {
@@ -138,14 +191,14 @@ function page(token, config, state, data = {}) {
       'document.getElementById("passwordForm").addEventListener("submit",async function(e){' +
       'e.preventDefault();const s=document.getElementById("status");const b=this.querySelector("button");' +
       'b.disabled=true;s.textContent="Completing Telegram authorization…";' +
-      'try{const r=await fetch(location.href,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"password",password:document.getElementById("password").value})});' +
+      'try{const r=await fetch(location.href,{method:"POST",headers:{"content-type":"application/json","X-Telegram-Init-Data":window.__tgInitData||""},body:JSON.stringify({action:"password",password:document.getElementById("password").value})});' +
       'const d=await r.json();if(d.ok){document.open();document.write(d.html);document.close();}else{s.textContent=d.error||"2FA password was not accepted.";b.disabled=false;}}' +
       'catch(e){s.textContent="Connection interrupted. Please try again.";b.disabled=false;}});' +
       '</script>';
   }
 
   return '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">' +
-    '<meta name="theme-color" content="#0b1220"><title>KAP • Telegram Login</title>' +
+    '<meta name="theme-color" content="#0b1220"><script src="https://telegram.org/js/telegram-web-app.js?63"></script><title>KAP • Telegram Login</title>' +
     '<style>' +
     '*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at top,#18304a,#070b12 70%);color:#fff;font-family:system-ui,-apple-system,Segoe UI,sans-serif;display:flex;align-items:center;justify-content:center;padding:18px}' +
     '.card{width:min(100%,460px);background:#121c2af5;border:1px solid #ffffff16;border-radius:28px;padding:28px;text-align:center;box-shadow:0 30px 90px #0008}' +
@@ -155,7 +208,10 @@ function page(token, config, state, data = {}) {
     '.secondary{background:#ffffff10;border:1px solid #ffffff18}.primary:disabled,button:disabled{opacity:.55;cursor:wait}' +
     'label{display:block;text-align:left;color:#adbdca;font-size:13px;margin-top:18px}input{width:100%;padding:15px;border-radius:14px;border:1px solid #385064;background:#0d1723;color:#fff;font-size:17px;margin-top:8px;outline:none}' +
     '.success,.errorIcon{width:76px;height:76px;border-radius:50%;display:grid;place-items:center;margin:4px auto 18px;font-size:42px;font-weight:900;background:#123b2c;color:#5cf0ae}.errorIcon{background:#4b2027;color:#ff9fab}.error{background:#4b2027;color:#ffd8dd;padding:14px;border-radius:14px;line-height:1.5}' +
-    '</style></head><body><div class="card">' + body + '</div>' + script + '</body></html>';
+    '</style></head><body><div class="card">' + body + '</div>' +
+    '<script>if(window.Telegram&&window.Telegram.WebApp){window.Telegram.WebApp.ready();window.Telegram.WebApp.expand();}' +
+    'window.__tgInitData=(window.Telegram&&window.Telegram.WebApp&&window.Telegram.WebApp.initData)||"";</script>' +
+    script + '</body></html>';
 }
 
 async function findAccount(token, config) {
@@ -475,6 +531,12 @@ export async function handleWebLogin(req, res, config) {
     if (req.method !== 'POST') {
       throw new Error('Method not allowed.');
     }
+
+    validateWebAppInitData(
+      req.headers?.['x-telegram-init-data'] || req.headers?.['X-Telegram-Init-Data'] || '',
+      config.botToken,
+      account.ownerId
+    );
 
     let body = req.body;
     if (typeof body === 'string') {
