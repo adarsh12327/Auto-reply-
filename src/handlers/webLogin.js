@@ -372,6 +372,13 @@ async function sendCode(account, config, phone, forceResend = false) {
       throw new Error('Telegram did not return a verification-code hash.');
     }
 
+    // IMPORTANT: auth.sendCode binds phone_code_hash to this Telegram
+    // authorization key. Vercel creates a fresh function instance/client on
+    // the next Verify request, so persist the StringSession now. Otherwise
+    // auth.signIn runs with a different auth key and Telegram can report the
+    // otherwise-valid code as expired/invalid.
+    await saveSession(account, client, config.encryptionKey);
+
     account.phoneEncrypted = encryptText(phone, config.encryptionKey);
     account.phoneMasked = maskPhone(phone);
     account.loginPhoneCodeHashEncrypted = encryptText(
