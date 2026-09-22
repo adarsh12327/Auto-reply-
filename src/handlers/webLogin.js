@@ -140,9 +140,10 @@ function page(token, config, state, data = {}) {
       'document.getElementById("passwordForm").addEventListener("submit",async function(e){' +
       'e.preventDefault();const s=document.getElementById("status");const b=this.querySelector("button");' +
       'b.disabled=true;s.textContent="Completing Telegram authorization…";' +
-      'try{const r=await fetch(location.href,{method:"POST",headers:{"content-type":"application/json","X-Telegram-Init-Data":window.__tgInitData||""},body:JSON.stringify({action:"password",password:document.getElementById("password").value})});' +
-      'const d=await r.json();if(d.ok){document.open();document.write(d.html);document.close();}else{s.textContent=d.error||"2FA password was not accepted.";b.disabled=false;}}' +
-      'catch(e){s.textContent="Connection interrupted. Please try again.";b.disabled=false;}});' +
+      'const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),25000);' +
+      'try{const r=await fetch(location.href,{method:"POST",headers:{"content-type":"application/json","X-Telegram-Init-Data":window.__tgInitData||""},body:JSON.stringify({action:"password",password:document.getElementById("password").value}),signal:controller.signal});' +
+      'clearTimeout(timer);const d=await r.json();if(d.ok){document.open();document.write(d.html);document.close();}else{s.textContent=d.error||"2FA password was not accepted.";b.disabled=false;}}' +
+      'catch(e){clearTimeout(timer);s.textContent=e.name==="AbortError"?"Telegram authorization is taking too long. Please try again once.":"Connection interrupted. Please try again.";b.disabled=false;}});' +
       '</script>';
   }
 
@@ -503,7 +504,7 @@ async function verifyPassword(account, config, password) {
         password: String(password),
         // GramJS requires onError in UserPasswordAuthParams.
         // Returning false lets the caller surface the Telegram error normally.
-        onError: async () => false
+        onError: async error => { throw error; }
       }
     );
 
