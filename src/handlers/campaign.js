@@ -425,7 +425,7 @@ ${error.message}`, backKeyboard());
   bot.action('campaign_dm', async ctx => {
     await ctx.answerCbQuery();
     const [scanned, authorized] = await Promise.all([
-      ScannedPeer.countDocuments({ ownerId: ctx.from.id, type: 'user' }),
+      ScannedPeer.countDocuments({ ownerId: ctx.from.id, type: 'personal' }),
       Consent.countDocuments({ ownerId: ctx.from.id, active: true })
     ]);
     await ctx.editMessageText(
@@ -475,7 +475,7 @@ ${error.message}`, backKeyboard());
     const campaign = await Campaign.findOne({ _id: campaignId, ownerId: ctx.from.id, type: 'dm', status: 'draft' });
     if (!campaign) return safeEdit(ctx, '❌ Campaign not found.', dmMenuKeyboard());
     const [scanned, authorized] = await Promise.all([
-      ScannedPeer.find({ ownerId: ctx.from.id, accountId: campaign.accountId, type: 'user' }).sort({ lastSeenAt: -1 }).lean(),
+      ScannedPeer.find({ ownerId: ctx.from.id, accountId: campaign.accountId, type: 'personal' }).sort({ lastSeenAt: -1 }).lean(),
       Consent.find({ ownerId: ctx.from.id, active: true }).sort({ createdAt: 1 }).lean()
     ]);
     const byId = new Map();
@@ -544,7 +544,7 @@ ${error.message}`, backKeyboard());
     const campaign = await Campaign.findOne({ _id: ctx.match[1], ownerId: ctx.from.id, type: 'dm', status: 'draft' });
     if (!campaign) return;
     const [scanned, authorized] = await Promise.all([
-      ScannedPeer.find({ ownerId: ctx.from.id, accountId: campaign.accountId, type: 'user' }).select('peerId').lean(),
+      ScannedPeer.find({ ownerId: ctx.from.id, accountId: campaign.accountId, type: 'personal' }).select('peerId').lean(),
       Consent.find({ ownerId: ctx.from.id, active: true }).select('recipientId').lean()
     ]);
     const ids = new Set([
