@@ -222,18 +222,18 @@ const campaignPeerMaps = new WeakMap();
 async function resolveCampaignUser(client, target) {
   const targetId = String(target);
 
-  try {
-    const direct = await client.getEntity(targetId);
-    if (direct instanceof Api.User) return direct;
-  } catch {}
-
   let peerMap = campaignPeerMaps.get(client);
   if (!peerMap) {
     peerMap = new Map();
 
+    // Load the connected account's dialog entities once per campaign/client.
+    // Reusing these Api.User objects avoids a network entity lookup for every
+    // recipient and is important on Vercel where campaign execution has a
+    // bounded request lifetime.
     for await (const dialog of client.iterDialogs({})) {
       const entity = dialog.entity;
       if (!entity || !(entity instanceof Api.User)) continue;
+      if (entity.bot || entity.self) continue;
       peerMap.set(String(entity.id), entity);
     }
 
@@ -242,6 +242,15 @@ async function resolveCampaignUser(client, target) {
 
   const entity = peerMap.get(targetId);
   if (entity) return entity;
+
+  // Last chance for a valid Telegram entity that wasn't present in dialogs.
+  try {
+    const direct = await client.getEntity(targetId);
+    if (direct instanceof Api.User) {
+      peerMap.set(targetId, direct);
+      return direct;
+    }
+  } catch {}
 
   throw new Error(
     `Telegram user entity could not be resolved for recipient ${targetId}. ` +
