@@ -181,7 +181,11 @@ async function startDmCampaign(ctx, campaign, config) {
     campaign.stats = { total: targets.length, sent: 0, failed: 0, skipped: 0 };
     campaign.status = 'draft';
   }
-  campaign.delayMs = Math.max(1000, Number(campaign.delayMs) || config.sendDelayMs || 20000);
+  // Vercel Hobby Functions have a 300s maximum. Keep a DM campaign within that
+  // window while retaining the saved delay when it is already safe.
+  const requestedDelay = Math.max(1000, Number(campaign.delayMs) || config.sendDelayMs || 3000);
+  const safeDelay = Math.min(requestedDelay, 3000);
+  campaign.delayMs = safeDelay;
   await campaign.save();
 
   await safeEdit(
@@ -434,7 +438,7 @@ ${error.message}`, backKeyboard());
     await ctx.answerCbQuery();
     const account = await getConnectedAccount(ctx.from.id, config);
     if (!account) return safeEdit(ctx, '❌ Connect your Telegram account first.', dmMenuKeyboard());
-    const campaign = await Campaign.create({ ownerId: ctx.from.id, accountId: account._id, type: 'dm', targetIds: [], message: '', delayMs: config.sendDelayMs || 20000 });
+    const campaign = await Campaign.create({ ownerId: ctx.from.id, accountId: account._id, type: 'dm', targetIds: [], message: '', delayMs: config.sendDelayMs || 3000 });
     pendingDm.set(ctx.from.id, { messageId: ctx.callbackQuery.message.message_id, campaignId: campaign._id });
     await ctx.editMessageText(
       '✉️ New DM Campaign\n\nSend the message you want to save.\n\nAfter saving, choose the delay and press ▶️ Send DM.',
