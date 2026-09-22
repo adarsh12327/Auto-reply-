@@ -20,10 +20,14 @@ export default async function handler(req, res) {
     const config = await getConfig();
     await handleWebLogin(req, res, config);
   } catch (error) {
-    console.error('Web login error:', error);
-    res.status(500).json({
-      ok: false,
-      error: error?.message || 'Web login failed'
-    });
+    console.error('Web Telegram login error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({
+        ok: false,
+        error: error?.message || 'Web login failed'
+      });
+    } else {
+      try { res.end(); } catch {}
+    }
   }
 }
