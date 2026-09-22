@@ -59,7 +59,7 @@ export async function startHandler(ctx) {
   }
 
   await ctx.reply(
-    '👋 Welcome to Telegram Manager.\n\nConnect your own Telegram account and manage authorized automation from one place.',
+    '🚀 TELEGRAM BUSINESS MANAGER\n\nManage your connected Telegram account, customer contacts, auto-replies and campaigns from one professional dashboard.\n\nChoose an option below to get started.',
     mainKeyboard()
   );
 }
