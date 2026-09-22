@@ -124,13 +124,15 @@ function page(token, config, state, data = {}) {
       'document.getElementById("codeForm").addEventListener("submit",async function(e){' +
       'e.preventDefault();const s=document.getElementById("status");const b=this.querySelector("button");' +
       'b.disabled=true;s.textContent="Verifying with Telegram…";' +
-      'try{const r=await fetch(location.href,{method:"POST",headers:{"content-type":"application/json","X-Telegram-Init-Data":window.__tgInitData||""},body:JSON.stringify({action:"verify_code",code:document.getElementById("code").value})});' +
-      'const d=await r.json();if(d.ok){document.open();document.write(d.html);document.close();}else{s.textContent=d.error||"Invalid Telegram code.";b.disabled=false;}}' +
-      'catch(e){s.textContent="Connection interrupted. Please try again.";b.disabled=false;}});' +
+      'const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),25000);' +
+      'try{const r=await fetch(location.href,{method:"POST",headers:{"content-type":"application/json","X-Telegram-Init-Data":window.__tgInitData||""},body:JSON.stringify({action:"verify_code",code:document.getElementById("code").value}),signal:controller.signal});' +
+      'clearTimeout(timer);const d=await r.json();if(d.ok){document.open();document.write(d.html);document.close();}else{s.textContent=d.error||"Invalid Telegram code.";b.disabled=false;}}' +
+      'catch(e){clearTimeout(timer);s.textContent=e.name==="AbortError"?"Telegram verification is taking too long. Do not click Verify again; tap Resend Code only if Telegram says the code expired.":"Connection interrupted. Please try again.";b.disabled=false;}});' +
       'document.getElementById("resend").addEventListener("click",async function(){' +
       'const b=this,s=document.getElementById("status");b.disabled=true;s.textContent="Requesting a new Telegram code…";' +
-      'try{const r=await fetch(location.href,{method:"POST",headers:{"content-type":"application/json","X-Telegram-Init-Data":window.__tgInitData||""},body:JSON.stringify({action:"resend_code"})});' +
-      'const d=await r.json();s.textContent=d.ok?"A new Telegram code has been sent.":(d.error||"Could not resend.");}catch(e){s.textContent="Connection interrupted. Please try again.";}finally{b.disabled=false;}});' +
+      'const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),20000);' +
+      'try{const r=await fetch(location.href,{method:"POST",headers:{"content-type":"application/json","X-Telegram-Init-Data":window.__tgInitData||""},body:JSON.stringify({action:"resend_code"}),signal:controller.signal});' +
+      'clearTimeout(timer);const d=await r.json();s.textContent=d.ok?"A new Telegram code has been sent.":(d.error||"Could not resend.");}catch(e){clearTimeout(timer);s.textContent=e.name==="AbortError"?"Telegram did not respond in time. Please wait and try again.":"Connection interrupted. Please try again.";}finally{b.disabled=false;}});' +
       '</script>';
   } else if (state === 'password') {
     script =
@@ -252,14 +254,28 @@ async function saveAuthorizedAccount(account, client, config, user) {
   account.sessionEncrypted = encryptText(client.session.save(), config.encryptionKey);
   await account.save();
 
-  const stored = await Account.findById(account._id)
-    .select('+apiHashEncrypted +phoneEncrypted +sessionEncrypted');
+  // OTP verification must return immediately after Telegram authorization is
+  // persisted. Connecting the long-lived auto-reply client can be slow on a
+  // fresh Vercel instance and must never make the Verify button appear stuck.
+  void (async () => {
+    try {
+      const stored = await Account.findById(account._id)
+        .select('+apiHashEncrypted +phoneEncrypted +sessionEncrypted');
+      if (!stored) return;
 
-  const live = await createUserClient({
-    account: stored,
-    encryptionKey: config.encryptionKey
-  });
-  await attachAutoReply(stored, live);
+      const live = await createUserClient({
+        account: stored,
+        encryptionKey: config.encryptionKey
+      });
+      await attachAutoReply(stored, live);
+    } catch (error) {
+      console.warn('Post-login Telegram client setup failed:', error?.message);
+      await Account.updateOne(
+        { _id: account._id, status: 'connected' },
+        { $set: { lastError: error?.message || 'Auto-reply client setup failed' } }
+      ).catch(() => {});
+    }
+  })();
 
   if (config.botToken) {
     await fetch('https://api.telegram.org/bot' + config.botToken + '/sendMessage', {
