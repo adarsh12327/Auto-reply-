@@ -18,7 +18,7 @@ import {
   pauseCampaign,
   cancelCampaign
 } from '../services/campaignService.js';
-import { listWritableGroups, listAllGroups, listPersonalDialogs, ensureAccountClient } from '../services/telegramClient.js';
+import { listWritableGroups, listAllGroups, listPersonalDialogs, syncIncomingDmConsents, ensureAccountClient } from '../services/telegramClient.js';
 import { scanMenuKeyboard, scanListKeyboard } from '../bot/keyboards.js';
 
 const pendingDm = new Map();
@@ -437,9 +437,27 @@ ${error.message}`, backKeyboard());
   });
 
   bot.action('dm_scan', async ctx => {
-    await ctx.answerCbQuery('Refreshing...');
-    const audience = await audienceText(ctx.from.id);
-    await safeEdit(ctx, `🔎 Audience Refresh Complete\n\n${audience.text.replace(/^👥 Authorized DM Recipients\n\n/, '')}`, dmAudienceKeyboard(audience.rows));
+    await ctx.answerCbQuery('Checking recent incoming DMs...');
+    try {
+      const account = await getConnectedAccount(ctx.from.id, config);
+      if (!account) {
+        return safeEdit(ctx, '❌ Connect your Telegram account first.', backKeyboard());
+      }
+
+      const synced = await syncIncomingDmConsents(account._id, ctx.from.id);
+      const audience = await audienceText(ctx.from.id);
+      const prefix = synced
+        ? `🔄 Audience Refresh Complete\\n\\nFound ${synced} recent incoming DM${synced === 1 ? '' : 's'}.\\n\\n`
+        : '🔄 Audience Refresh Complete\\n\\nNo new incoming DMs found.\\n\\n';
+
+      await safeEdit(
+        ctx,
+        prefix + audience.text.replace(/^👥 Authorized DM Recipients\\n\\n/, ''),
+        dmAudienceKeyboard(audience.rows)
+      );
+    } catch (error) {
+      await safeEdit(ctx, `❌ Audience refresh failed\\n\\n${error.message}`, backKeyboard());
+    }
   });
 
   bot.action(/^dm_recipient_remove:(.+)$/, async ctx => {
