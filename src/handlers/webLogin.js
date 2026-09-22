@@ -275,9 +275,20 @@ async function saveAuthorizedAccount(account, client, config, user) {
 
 async function sendCode(account, config, phone, forceResend = false) {
   const now = Date.now();
-  if (!forceResend && account.loginCodeSendingAt && now - account.loginCodeSendingAt.getTime() < RESEND_COOLDOWN_MS) {
-    const wait = Math.ceil((RESEND_COOLDOWN_MS - (now - account.loginCodeSendingAt.getTime())) / 1000);
-    throw new Error('Please wait ' + wait + ' seconds before requesting another Telegram code.');
+
+  // Telegram applies flood limits to login-code requests. Keep a server-side
+  // cooldown for both the first request and resend so the web button cannot
+  // hammer auth.sendCode/auth.resendCode.
+  if (account.loginCodeSentAt && now - account.loginCodeSentAt.getTime() < RESEND_COOLDOWN_MS) {
+    const wait = Math.ceil(
+      (RESEND_COOLDOWN_MS - (now - account.loginCodeSentAt.getTime())) / 1000
+    );
+
+    if (forceResend || account.loginStep === 'code') {
+      throw new Error(
+        'Please wait ' + wait + ' seconds before requesting another Telegram code.'
+      );
+    }
   }
 
   account.loginCodeSendingAt = new Date();
@@ -287,15 +298,54 @@ async function sendCode(account, config, phone, forceResend = false) {
   const { client, apiHash } = await createClient(account, config);
 
   try {
-    const result = await client.sendCode(
-      { apiId: Number(account.apiId), apiHash },
-      phone,
-      false
-    );
+    let result;
+
+    if (forceResend) {
+      if (!account.loginPhoneCodeHashEncrypted || !account.phoneEncrypted) {
+        throw new Error('No active Telegram verification request. Send the mobile number again.');
+      }
+
+      const savedPhone = decryptText(account.phoneEncrypted, config.encryptionKey);
+      const savedHash = decryptText(
+        account.loginPhoneCodeHashEncrypted,
+        config.encryptionKey
+      );
+
+      result = await client.invoke(new Api.auth.ResendCode({
+        phoneNumber: savedPhone,
+        phoneCodeHash: savedHash
+      }));
+    } else {
+      result = await client.sendCode(
+        { apiId: Number(account.apiId), apiHash },
+        phone,
+        false
+      );
+    }
+
+    // Telegram can theoretically return auth.sentCodeSuccess when a future
+    // authorization token is accepted. Handle that explicitly instead of
+    // trying to read phoneCodeHash from a successful authorization response.
+    if (result instanceof Api.auth.SentCodeSuccess) {
+      const user = result.authorization?.user || result.authorization;
+      await saveAuthorizedAccount(account, client, config, user);
+      return {
+        connected: true,
+        isCodeViaApp: false,
+        phoneMasked: account.phoneMasked
+      };
+    }
+
+    if (!result?.phoneCodeHash) {
+      throw new Error('Telegram did not return a verification-code hash.');
+    }
 
     account.phoneEncrypted = encryptText(phone, config.encryptionKey);
     account.phoneMasked = maskPhone(phone);
-    account.loginPhoneCodeHashEncrypted = encryptText(result.phoneCodeHash, config.encryptionKey);
+    account.loginPhoneCodeHashEncrypted = encryptText(
+      result.phoneCodeHash,
+      config.encryptionKey
+    );
     account.loginCodeSentAt = new Date();
     account.loginCodeSendingAt = null;
     account.loginCodeVerifyingAt = null;
@@ -304,7 +354,7 @@ async function sendCode(account, config, phone, forceResend = false) {
     await account.save();
 
     return {
-      isCodeViaApp: result.isCodeViaApp,
+      isCodeViaApp: Boolean(result.isCodeViaApp),
       phoneMasked: account.phoneMasked
     };
   } catch (error) {
@@ -316,7 +366,6 @@ async function sendCode(account, config, phone, forceResend = false) {
     await client.disconnect().catch(() => {});
   }
 }
-
 async function verifyCode(account, config, code) {
   if (!/^\d{4,7}$/.test(String(code || '').trim())) {
     throw new Error('Enter the numeric Telegram verification code.');
