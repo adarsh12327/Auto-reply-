@@ -15,7 +15,7 @@ export function createBot(config) {
   bot.start(startHandler);
 
   bot.command('menu', async ctx => {
-    await ctx.reply('🏠 Main Menu', mainKeyboard());
+    await ctx.reply('🏠 BUSINESS DASHBOARD\n\nManage accounts, contacts, automation and campaigns from one place.', mainKeyboard());
   });
 
   bot.command('subscribe', async ctx => {
@@ -46,7 +46,7 @@ export function createBot(config) {
 
   bot.action('main_menu', async ctx => {
     await ctx.answerCbQuery();
-    await ctx.editMessageText('🏠 Main Menu', mainKeyboard());
+    await ctx.editMessageText('🏠 BUSINESS DASHBOARD\n\nManage accounts, contacts, automation and campaigns from one place.', mainKeyboard());
   });
 
   async function renderAccounts(ctx) {
@@ -66,7 +66,7 @@ export function createBot(config) {
     rows.push([Markup.button.callback('➕ Add Account', 'add_account')]);
     rows.push([Markup.button.callback('⬅️ Back to Home', 'main_menu')]);
 
-    await ctx.editMessageText('👤 Accounts\n\n' + text + '\n\nSelect an account action:', Markup.inlineKeyboard(rows));
+    await ctx.editMessageText('👤 ACCOUNT CENTER\n\n' + text + '\n\nSelect an account to manage it, or connect a new account:', Markup.inlineKeyboard(rows));
   }
 
   bot.action('accounts', async ctx => {
@@ -159,7 +159,7 @@ export function createBot(config) {
     ]);
     const stats = aggregate[0] || { sent: 0, failed: 0, skipped: 0 };
     await ctx.editMessageText(
-      '📊 Statistics\n\nAccounts: ' + accounts + '\nCampaigns: ' + campaigns + '\n\n📤 Sent: ' + (stats.sent || 0) + '\n❌ Failed: ' + (stats.failed || 0) + '\n⏭️ Skipped: ' + (stats.skipped || 0),
+      '📊 BUSINESS ANALYTICS\n\n👤 Connected accounts: ' + accounts + '\n📣 Campaigns: ' + campaigns + '\n\n📤 Sent: ' + (stats.sent || 0) + '\n❌ Failed: ' + (stats.failed || 0) + '\n⏭️ Skipped: ' + (stats.skipped || 0),
       backKeyboard()
     );
   });
