@@ -390,9 +390,18 @@ export function registerCampaignHandlers(bot, config) {
 
       const peers = await listPersonalDialogs(account._id);
       await saveScannedPeers(ctx.from.id, account._id, peers);
+
+      // Refresh consent only from real incoming DM history. Scanning a
+      // contact must not itself grant permission to send them DMs.
+      const authorizedCount = await syncIncomingDmConsents(
+        account._id,
+        ctx.from.id
+      );
+
       await safeEdit(
         ctx,
-        scannedListText('Personal Account', peers),
+        scannedListText('Personal Account', peers) +
+          `\n\n✅ Authorized from incoming DMs: ${authorizedCount}`,
         scanListKeyboard('personal')
       );
     } catch (error) {
