@@ -330,10 +330,23 @@ async function sendCode(account, config, phone, forceResend = false) {
         config.encryptionKey
       );
 
-      result = await client.invoke(new Api.auth.ResendCode({
-        phoneNumber: savedPhone,
-        phoneCodeHash: savedHash
-      }));
+      try {
+        result = await client.invoke(new Api.auth.ResendCode({
+          phoneNumber: savedPhone,
+          phoneCodeHash: savedHash
+        }));
+      } catch (error) {
+        const upper = errorText(error).toUpperCase();
+        if (upper.includes('PHONE_CODE_EXPIRED') || upper.includes('PHONE_CODE_HASH_EMPTY')) {
+          result = await client.sendCode(
+            { apiId: Number(account.apiId), apiHash },
+            savedPhone,
+            false
+          );
+        } else {
+          throw error;
+        }
+      }
     } else {
       result = await client.sendCode(
         { apiId: Number(account.apiId), apiHash },
