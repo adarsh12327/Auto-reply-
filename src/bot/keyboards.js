@@ -10,6 +10,11 @@ export const mainKeyboard = () => Markup.inlineKeyboard([
   [Markup.button.callback('🎁 Redeem Code', 'redeem'), Markup.button.callback('🆘 Support', 'support')]
 ]);
 
+export const qrLoginKeyboard = accountId => Markup.inlineKeyboard([
+  [Markup.button.callback('🔄 Check QR Login', 'account_qr_check:' + accountId)],
+  [Markup.button.callback('❌ Cancel Login', 'account_qr_cancel:' + accountId)]
+]);
+
 export const backKeyboard = (action = 'main_menu', label = '⬅️ Back') => Markup.inlineKeyboard([
   [Markup.button.callback(label, action)]
 ]);
