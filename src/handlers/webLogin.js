@@ -499,7 +499,12 @@ async function verifyPassword(account, config, password) {
   try {
     const result = await client.signInWithPassword(
       { apiId: Number(account.apiId), apiHash },
-      { password: String(password) }
+      {
+        password: String(password),
+        // GramJS requires onError in UserPasswordAuthParams.
+        // Returning false lets the caller surface the Telegram error normally.
+        onError: async () => false
+      }
     );
 
     const user = result?.user || result;
