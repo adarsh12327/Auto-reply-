@@ -5,6 +5,7 @@ import { TelegramClient, Api } from 'telegram';
 import { StringSession } from 'telegram/sessions/index.js';
 import QRCode from 'qrcode';
 import { createUserClient, attachAutoReply } from '../services/telegramClient.js';
+import { issueWebLogin, clearWebLogin, webLoginKeyboard } from './webLogin.js';
 
 const pending = new Map();
 
@@ -259,7 +260,7 @@ export function registerAccountHandlers(bot, config) {
     const account = await Account.findOne({
       ownerId: ctx.from.id,
       status: 'pending',
-      loginStep: { $in: ['qr', 'password'] }
+      loginStep: { $in: ['web', 'qr', 'password'] }
     }).sort({ updatedAt: -1 });
 
     if (account) {
@@ -273,7 +274,9 @@ export function registerAccountHandlers(bot, config) {
             loginCodeSendingAt: null,
             loginCodeVerifyingAt: null,
             loginQrExpiresAt: null,
-            loginQrTokenEncrypted: null
+            loginQrTokenEncrypted: null,
+            loginWebTokenHash: null,
+            loginWebTokenExpiresAt: null
           }
         }
       );
@@ -291,8 +294,8 @@ export function registerAccountHandlers(bot, config) {
       '🔐 Add Telegram Account\n\n' +
       '1/2 Send your Telegram API ID.\n' +
       'Get it from my.telegram.org → API development tools.\n\n' +
-      'After the API Hash, the bot will show a Telegram QR code.\n' +
-      'You will NOT need to send a Telegram login code to this bot.\n\n' +
+      'After the API Hash is saved, a professional secure web login page will open.\n' +
+      'Telegram confirmation happens inside the Telegram app — no Google login and no login code in this bot chat.\n\n' +
       '/cancel to stop.'
     );
   });
@@ -453,33 +456,36 @@ export function registerAccountHandlers(bot, config) {
 
       let account;
       try {
-        const temporaryPhone = 'QR-' + Date.now() + '-' + Math.floor(Math.random() * 1000000);
-
         account = await Account.create({
           ownerId: ctx.from.id,
-          phoneMasked: temporaryPhone,
+          phoneMasked: 'Telegram Account • Not Connected',
           apiId: state.apiId,
           apiHashEncrypted: encryptText(text, config.encryptionKey),
           status: 'pending',
-          loginStep: 'qr'
+          loginStep: 'web'
         });
 
-        const challenge = await startQrLogin(account, config);
-        pending.set(ctx.from.id, { step: 'qr', accountId: account._id });
-        await sendQrMessage(ctx, challenge, account._id);
+        const token = issueWebLogin(account, config.encryptionKey);
+        await account.save();
+        pending.delete(ctx.from.id);
+
+        await ctx.reply(
+          '✅ API credentials saved securely.\n\n' +
+          '📱 Now add the mobile Telegram account from the professional secure login page.\n\n' +
+          'No Google login is used. Confirm the login in the Telegram app.',
+          webLoginKeyboard(token)
+        );
       } catch (error) {
         if (account) {
           account.status = 'error';
           account.loginStep = null;
-          account.loginQrTokenEncrypted = undefined;
-          account.loginQrExpiresAt = null;
-          account.lastError = error.message || String(error);
+          clearWebLogin(account);
           await account.save().catch(() => {});
         }
 
         pending.delete(ctx.from.id);
         await ctx.reply(
-          '❌ Could not start Telegram QR login: ' + (error.message || String(error)),
+          '❌ Could not prepare Telegram account login: ' + (error.message || String(error)),
           mainKeyboard()
         );
       }
