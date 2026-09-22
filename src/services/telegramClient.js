@@ -217,8 +217,41 @@ export async function canPost(client, target) {
   }
 }
 
+const campaignPeerMaps = new WeakMap();
+
+async function resolveCampaignUser(client, target) {
+  const targetId = String(target);
+
+  try {
+    const direct = await client.getEntity(targetId);
+    if (direct instanceof Api.User) return direct;
+  } catch {}
+
+  let peerMap = campaignPeerMaps.get(client);
+  if (!peerMap) {
+    peerMap = new Map();
+
+    for await (const dialog of client.iterDialogs({})) {
+      const entity = dialog.entity;
+      if (!entity || !(entity instanceof Api.User)) continue;
+      peerMap.set(String(entity.id), entity);
+    }
+
+    campaignPeerMaps.set(client, peerMap);
+  }
+
+  const entity = peerMap.get(targetId);
+  if (entity) return entity;
+
+  throw new Error(
+    `Telegram user entity could not be resolved for recipient ${targetId}. ` +
+    'The recipient must exist in the connected account\'s dialogs.'
+  );
+}
+
 export async function sendAuthorizedMessage(client, target, message) {
-  await client.sendMessage(target, { message });
+  const entity = await resolveCampaignUser(client, target);
+  await client.sendMessage(entity, { message });
 }
 
 export async function ensureAccountClient(accountId, encryptionKey) {
