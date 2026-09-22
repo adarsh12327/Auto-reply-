@@ -19,7 +19,7 @@ import {
   cancelCampaign
 } from '../services/campaignService.js';
 import { listWritableGroups, listAllGroups, listPersonalDialogs, syncIncomingDmConsents, ensureAccountClient } from '../services/telegramClient.js';
-import { scanMenuKeyboard, scanListKeyboard } from '../bot/keyboards.js';
+import { scanMenuKeyboard, scanListKeyboard, scannedSelectionKeyboard } from '../bot/keyboards.js';
 
 const pendingDm = new Map();
 const pendingGroup = new Map();
@@ -101,7 +101,7 @@ function scannedListText(title, peers) {
     return `${index + 1}. ${peer.name || 'Unknown'}${handle}\n   ID: ${peer.id}`;
   });
   const extra = peers.length > 50 ? `\n\n…and ${peers.length - 50} more saved.` : '';
-  return `🔎 ${title}\n\nFound: ${peers.length}\n\n${lines.join('\n')}\n${extra}\n\nSaved in the account directory. DM campaigns still use the authorization checks before sending.`;
+  return `🔎 ${title}\n\nFound: ${peers.length}\n\n${lines.join('\n')}\n${extra}\n\nSaved in your customer directory. Open DM Campaigns → Select from Scanner to choose campaign contacts.`;
 }
 
 async function safeEdit(ctx, text, keyboard) {
@@ -415,22 +415,94 @@ ${error.message}`, backKeyboard());
 
   bot.action('campaign_dm', async ctx => {
     await ctx.answerCbQuery();
-    const count = await Consent.countDocuments({ ownerId: ctx.from.id, active: true });
+    const [scanned, authorized] = await Promise.all([
+      ScannedPeer.countDocuments({ ownerId: ctx.from.id, type: 'user' }),
+      Consent.countDocuments({ ownerId: ctx.from.id, active: true })
+    ]);
     await ctx.editMessageText(
-      `📩 DM Campaign\n\nAuthorized recipients: ${count}\n\nChoose an action below.`,
+      `📩 DM CAMPAIGN CENTER\n\n👥 Customer contacts: ${scanned}\n✅ Authorized contacts: ${authorized}\n\nCreate a message, choose your customer list, review, then send.`,
       dmMenuKeyboard()
     );
   });
 
   bot.action('dm_new', async ctx => {
     await ctx.answerCbQuery();
-    pendingDm.set(ctx.from.id, { messageId: ctx.callbackQuery.message.message_id });
+    const account = await getConnectedAccount(ctx.from.id, config);
+    if (!account) return safeEdit(ctx, '❌ Connect your Telegram account first.', dmMenuKeyboard());
+    const campaign = await Campaign.create({ ownerId: ctx.from.id, accountId: account._id, type: 'dm', targetIds: [], message: '', delayMs: config.sendDelayMs || 20000 });
+    pendingDm.set(ctx.from.id, { messageId: ctx.callbackQuery.message.message_id, campaignId: campaign._id });
     await ctx.editMessageText(
       '✉️ New DM Campaign\n\nSend the message you want to save.\n\nAfter saving, choose the delay and press ▶️ Send DM.',
       backKeyboard()
     );
   });
 
+  async function renderScannedRecipients(ctx, campaignId, page = 0) {
+    const campaign = await Campaign.findOne({ _id: campaignId, ownerId: ctx.from.id, type: 'dm', status: 'draft' });
+    if (!campaign) return safeEdit(ctx, '❌ Campaign not found.', dmMenuKeyboard());
+    const peers = await ScannedPeer.find({ ownerId: ctx.from.id, accountId: campaign.accountId, type: 'user' }).sort({ lastSeenAt: -1 }).lean();
+    const selected = Array.isArray(campaign.targetIds) ? campaign.targetIds.map(String) : [];
+    if (!peers.length) return safeEdit(ctx, '🔎 CUSTOMER CONTACTS\n\nNo scanned contacts yet.\n\nOpen Contact Scanner → Personal Contacts first.', dmMenuKeyboard());
+    await safeEdit(ctx, '👥 CUSTOMER CONTACTS\n\nSelected: ' + selected.length + ' / ' + peers.length + '\n\nTap contacts to select them. Use Select All for the full scanned list.', scannedSelectionKeyboard(campaignId, peers, selected, page));
+  }
+
+  bot.action('dm_scanned', async ctx => {
+    await ctx.answerCbQuery();
+    const account = await getConnectedAccount(ctx.from.id, config);
+    if (!account) return safeEdit(ctx, '❌ Connect your Telegram account first.', dmMenuKeyboard());
+    let campaign = await Campaign.findOne({ ownerId: ctx.from.id, accountId: account._id, type: 'dm', status: 'draft' }).sort({ updatedAt: -1 });
+    if (!campaign) campaign = await Campaign.create({ ownerId: ctx.from.id, accountId: account._id, type: 'dm', targetIds: [], message: '', delayMs: config.sendDelayMs || 20000 });
+    await renderScannedRecipients(ctx, campaign._id, 0);
+  });
+
+  bot.action(/^dm_pick_open:(.+)$/, async ctx => {
+    await ctx.answerCbQuery();
+    await renderScannedRecipients(ctx, ctx.match[1], 0);
+  });
+
+  bot.action(/^dm_pick_page:(.+):(\\d+)$/, async ctx => {
+    await ctx.answerCbQuery();
+    await renderScannedRecipients(ctx, ctx.match[1], Number(ctx.match[2]));
+  });
+
+  bot.action(/^dm_pick:(.+):(.+)$/, async ctx => {
+    await ctx.answerCbQuery();
+    const campaign = await Campaign.findOne({ _id: ctx.match[1], ownerId: ctx.from.id, type: 'dm', status: 'draft' });
+    if (!campaign) return;
+    const id = String(ctx.match[2]);
+    const selected = new Set((campaign.targetIds || []).map(String));
+    if (selected.has(id)) selected.delete(id); else selected.add(id);
+    campaign.targetIds = [...selected];
+    await campaign.save();
+    await renderScannedRecipients(ctx, campaign._id, 0);
+  });
+
+  bot.action(/^dm_pick_all:(.+)$/, async ctx => {
+    await ctx.answerCbQuery('All contacts selected');
+    const campaign = await Campaign.findOne({ _id: ctx.match[1], ownerId: ctx.from.id, type: 'dm', status: 'draft' });
+    if (!campaign) return;
+    const peers = await ScannedPeer.find({ ownerId: ctx.from.id, accountId: campaign.accountId, type: 'user' }).select('peerId').lean();
+    campaign.targetIds = peers.map(p => String(p.peerId));
+    await campaign.save();
+    await renderScannedRecipients(ctx, campaign._id, 0);
+  });
+
+  bot.action(/^dm_pick_clear:(.+)$/, async ctx => {
+    await ctx.answerCbQuery('Selection cleared');
+    const campaign = await Campaign.findOne({ _id: ctx.match[1], ownerId: ctx.from.id, type: 'dm', status: 'draft' });
+    if (!campaign) return;
+    campaign.targetIds = [];
+    await campaign.save();
+    await renderScannedRecipients(ctx, campaign._id, 0);
+  });
+
+  bot.action(/^dm_pick_done:(.+)$/, async ctx => {
+    await ctx.answerCbQuery();
+    const campaign = await Campaign.findOne({ _id: ctx.match[1], ownerId: ctx.from.id, type: 'dm', status: 'draft' });
+    if (!campaign) return;
+    if (!campaign.message) return safeEdit(ctx, '✉️ Add your campaign message first.', dmMenuKeyboard());
+    await safeEdit(ctx, '📝 CAMPAIGN REVIEW\n\nMessage:\n' + campaign.message + '\n\n👥 Selected contacts: ' + campaign.targetIds.length + '\n\nChoose delay, then review and send.', dmDraftKeyboard(campaign._id, campaign.delayMs));
+  });
   bot.action('dm_audience', async ctx => {
     await ctx.answerCbQuery();
     await showAudience(ctx);
