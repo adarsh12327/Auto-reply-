@@ -130,8 +130,14 @@ export async function attachAutoReply(account, client) {
       const sender = await message.getSender();
       if (!(sender instanceof Api.User) || sender.bot || sender.self) return;
 
-      // Reply only when Telegram explicitly reports the sender as offline.
-      if (!(sender.status instanceof Api.UserStatusOffline)) return;
+      // Handle normal incoming private DMs regardless of whether the sender
+      // is currently online or offline. Telegram may report an online status
+      // for a sender who has just messaged, so requiring UserStatusOffline
+      // would silently skip valid auto-reply events.
+      await Account.updateOne(
+        { _id: account._id },
+        { $set: { lastSeenAt: new Date() } }
+      );
 
       await Consent.findOneAndUpdate(
         { ownerId: account.ownerId, recipientId: senderId },
