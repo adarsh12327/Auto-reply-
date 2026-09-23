@@ -180,8 +180,17 @@ export function createBot(config) {
   registerAdminHandlers(bot, config);
 
   bot.catch((error, ctx) => {
-    console.error('Bot error:', error);
-    return ctx.reply('❌ Something went wrong. Please try again.').catch(() => {});
+    console.error('Bot error:', {
+      message: error?.message,
+      description: error?.description,
+      code: error?.code,
+      updateType: ctx?.updateType,
+      callbackData: ctx?.callbackQuery?.data,
+      command: ctx?.message?.text
+    });
+
+    const detail = error?.description || error?.message || 'Unknown error';
+    return ctx.reply('❌ Something went wrong.\\n\\nError: ' + detail).catch(() => {});
   });
 
   return bot;
