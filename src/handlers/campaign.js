@@ -755,14 +755,6 @@ ${error.message}`, backKeyboard());
     await safeEdit(ctx, progressText(campaign, processedCount(campaign), campaign.stats.total || 0, 'Group'), backKeyboard());
   });
 
-  bot.action('campaign_channel', async ctx => {
-    await ctx.answerCbQuery();
-    await ctx.editMessageText(
-      '📢 CHANNEL campaign\n\nUse an authorized channel target with the existing admin-permission checks.\n\n/campaign channel TARGET_ID MESSAGE',
-      backKeyboard()
-    );
-  });
-
   bot.command('campaign', async ctx => {
     const parts = ctx.message.text.split(/\s+/);
     const type = parts[1];
