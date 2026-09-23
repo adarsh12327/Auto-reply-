@@ -133,8 +133,11 @@ export async function runCampaign(
           !(await canPost(client, target))
         ) {
           result = 'skipped';
-        } else {
+        } else if (campaign.type === 'dm') {
           await sendAuthorizedMessage(client, target, campaign.message);
+        } else {
+          const entity = await client.getEntity(target);
+          await client.sendMessage(entity, { message: campaign.message });
         }
       } catch (error) {
         result = 'failed';
