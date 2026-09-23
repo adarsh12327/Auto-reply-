@@ -8,6 +8,7 @@ import { ReplyLog, ScannedPeer } from '../db.js';
 import { registerAutoReplyHandlers } from '../handlers/autoReply.js';
 import { registerCampaignHandlers } from '../handlers/campaign.js';
 import { registerAdminHandlers } from '../handlers/admin.js';
+import { registerChannelPromoHandlers } from '../handlers/channelPromo.js';
 
 export function createBot(config) {
   const bot = new Telegraf(config.botToken);
@@ -175,6 +176,7 @@ export function createBot(config) {
   registerAccountHandlers(bot, config);
   registerAutoReplyHandlers(bot, config);
   registerCampaignHandlers(bot, config);
+  registerChannelPromoHandlers(bot, config);
   registerAdminHandlers(bot, config);
 
   bot.catch((error, ctx) => {
