@@ -435,3 +435,30 @@ export async function listAllGroups(accountId) {
 
   return groups;
 }
+
+
+export async function listWritableChannels(accountId) {
+  const client = getClient(accountId);
+  if (!client?.connected) throw new Error('Telegram account is not connected');
+
+  const channels = [];
+  for await (const dialog of client.iterDialogs({})) {
+    const entity = dialog.entity;
+    if (!(entity instanceof Api.Channel) || entity.megagroup) continue;
+
+    let allowed = false;
+    try {
+      allowed = await canPost(client, entity);
+    } catch {
+      allowed = false;
+    }
+    if (!allowed) continue;
+
+    channels.push({
+      id: String(entity.id),
+      title: String(dialog.title || entity.title || 'Untitled channel'),
+      username: entity.username ? String(entity.username) : ''
+    });
+  }
+  return channels;
+}
