@@ -353,7 +353,7 @@ export function registerAdminV2Handlers(bot, config) {
   bot.command('unban', async ctx => {
     const record = await adminOnly(ctx, 'users');
     if (!record) return;
-    const id = Number(ctx.message.text.replace(/^\\/unban\\s*/i,'').trim());
+    const id = Number(ctx.message.text.replace(/^\/unban\s*/i,'').trim());
     if (!Number.isSafeInteger(id)) return ctx.reply('Usage: /unban TELEGRAM_ID');
     await User.updateOne({ telegramId: id }, { $set: { blocked: false } });
     await ctx.reply('✅ User unbanned: '+id);
