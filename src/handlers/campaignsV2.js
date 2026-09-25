@@ -26,7 +26,7 @@ async function showAccountPicker(ctx, type) {
   const accounts = await Account.find({ ownerId: ctx.from.id, status: 'connected' }).sort({ createdAt: -1 }).lean();
   if (!accounts.length) return edit(ctx, '❌ <b>No connected Telegram accounts.</b>\n\nUse Add Account first.', simpleBackKeyboard());
   const key = type === 'dm' ? 'dm_flow' : 'group_flow';
-  await setUiState(ctx.from.id, key, { step: 'accounts', accountIds: [], type });
+  await setUiState(ctx.from.id, key, { step: 'accounts', accountIds: [], type: type === 'group_schedule' ? 'group' : type, scheduled: type === 'group_schedule' });
   await edit(ctx, '👤 <b>Select Account</b>\n\nChoose one, multiple, or all connected accounts.', picker(accounts, [], type === 'dm' ? 'dm_accounts_done' : 'group_accounts_done'));
 }
 
@@ -56,7 +56,7 @@ async function showGroupTargets(ctx) {
   for (const id of ids) await syncAccountGroups(ctx.from.id, id, process.env.SESSION_ENCRYPTION_KEY ? Buffer.from(process.env.SESSION_ENCRYPTION_KEY, 'hex') : null).catch(() => {});
   const rows = await ManagedGroup.find({ ownerId: ctx.from.id, accountId: { $in: ids }, canPost: true }).sort({ name: 1 }).limit(200).lean();
   if (!rows.length) return edit(ctx, '🔎 <b>No writable groups found.</b>\n\nRefresh the selected accounts and make sure the Telegram accounts are members with permission to post.', simpleBackKeyboard('feature_group'));
-  await setUiState(ctx.from.id, 'group_flow', { step: 'targets', accountIds: ids, targetKeys: [], type: 'group' });
+  await setUiState(ctx.from.id, 'group_flow', { ...state.data, step: 'targets', accountIds: ids, targetKeys: [], type: 'group' });
   const buttons = rows.slice(0, 30).map(r => [
     Markup.button.callback('☐ ' + (r.name || r.telegramGroupId).slice(0, 25), 'group_target:' + r.accountId + ':' + r.telegramGroupId)
   ]);
@@ -88,6 +88,7 @@ async function buildPreview(ctx, type, message) {
     return edit(ctx, '❌ <b>Limit exceeded</b>\n\nSelected: ' + targets.length + '\nAllowed: ' + limit + '\n\nAdmin can change this limit.');
   }
   await setUiState(ctx.from.id, key, { ...state.data, step: 'preview', message });
+  const scheduleMode = type === 'group' && state.data?.scheduled;
   await edit(ctx,
     '📝 <b>CAMPAIGN REVIEW</b>\n\n' +
     'Type: ' + type.toUpperCase() + '\n' +
@@ -96,7 +97,7 @@ async function buildPreview(ctx, type, message) {
     'Delay: ' + Math.round((settings.defaultCampaignDelayMs || 20000) / 1000) + 's\n\n' +
     '<b>Message</b>\n' + message,
     Markup.inlineKeyboard([
-      [Markup.button.callback('▶️ Confirm & Start', 'campaign_confirm:' + type)],
+      [Markup.button.callback(scheduleMode ? '⏰ Configure Auto Start' : '▶️ Confirm & Start', scheduleMode ? 'campaign_schedule_config' : 'campaign_confirm:' + type)],
       [Markup.button.callback('✏️ Edit Message', 'campaign_write:' + type)],
       [Markup.button.callback('❌ Cancel', type === 'dm' ? 'feature_dm' : 'feature_group')]
     ])
@@ -153,6 +154,7 @@ export function registerCampaignV2Handlers(bot, config) {
 
   bot.action('group_accounts_done', async ctx => {
     await ctx.answerCbQuery();
+    const state = await getUiState(ctx.from.id, 'group_flow');
     const ids = await selectedAccounts(ctx.from.id, 'group_flow');
     if (!ids.length) return edit(ctx, '❌ Select at least one account.', simpleBackKeyboard('feature_group'));
     await showGroupTargets(ctx);
@@ -224,6 +226,14 @@ export function registerCampaignV2Handlers(bot, config) {
     await edit(ctx, '✏️ <b>Campaign Message</b>\n\nSend the message you want to use.\n\n/cancel to stop.', messageInputKeyboard(ctx.match[1] === 'dm' ? 'feature_dm' : 'feature_group'));
   });
 
+  bot.action('campaign_schedule_config', async ctx => {
+    await ctx.answerCbQuery();
+    const state = await getUiState(ctx.from.id, 'group_flow');
+    if (!state?.data?.scheduled) return edit(ctx, '❌ Schedule setup expired.');
+    await setUiState(ctx.from.id, 'group_flow', { ...state.data, step: 'schedule_interval' });
+    await edit(ctx, '⏰ <b>AUTO START INTERVAL</b>\\n\\nSend the repeat interval in minutes.\\nExample: <code>60</code> = every 1 hour.\\nMinimum: 1 minute.');
+  });
+
   bot.action(/^campaign_confirm:(dm|group)$/, async ctx => {
     await ctx.answerCbQuery('Starting campaign...');
     const type = ctx.match[1];
@@ -293,7 +303,7 @@ export function registerCampaignV2Handlers(bot, config) {
 
   bot.action('group_select', async ctx => { await ctx.answerCbQuery(); await showAccountPicker(ctx, 'group'); });
   bot.action('group_new', async ctx => { await ctx.answerCbQuery(); await showAccountPicker(ctx, 'group'); });
-  bot.action('group_autostart', async ctx => { await ctx.answerCbQuery(); await edit(ctx, '⏰ <b>GROUP AUTO START</b>\n\nPersistent scheduler support is being connected to the Vercel Cron worker.'); });
+  bot.action('group_autostart', async ctx => { await ctx.answerCbQuery(); await showAccountPicker(ctx, 'group_schedule'); });
   bot.action('group_history', async ctx => {
     await ctx.answerCbQuery();
     const rows = await BusinessCampaign.find({ ownerId: ctx.from.id, type: 'group' }).sort({ createdAt: -1 }).limit(15).lean();
@@ -301,6 +311,38 @@ export function registerCampaignV2Handlers(bot, config) {
   });
 
   bot.on('text', async (ctx, next) => {
+    const scheduleState = await getUiState(ctx.from.id, 'group_flow');
+    if (scheduleState?.data?.step === 'schedule_interval') {
+      const minutes = Number(String(ctx.message.text || '').trim());
+      if (!Number.isInteger(minutes) || minutes < 1 || minutes > 10080) return ctx.reply('❌ Enter whole minutes from 1 to 10080.');
+      const end = new Date(Date.now() + minutes * 60000);
+      await setUiState(ctx.from.id, 'group_flow', { ...scheduleState.data, step: 'schedule_end', repeatEveryMs: minutes * 60000 });
+      await ctx.reply('⏰ Interval saved: every ' + minutes + ' minute(s).\\n\\nSend how many hours it should run, or <code>0</code> for no end.', { parse_mode: 'HTML' });
+      return;
+    }
+    if (scheduleState?.data?.step === 'schedule_end') {
+      const hours = Number(String(ctx.message.text || '').trim());
+      if (!Number.isInteger(hours) || hours < 0 || hours > 8760) return ctx.reply('❌ Enter whole hours from 0 to 8760.');
+      const endAt = hours === 0 ? null : new Date(Date.now() + hours * 3600000);
+      const data = scheduleState.data;
+      const campaign = await createCampaign({
+        ownerId: ctx.from.id,
+        accountIds: data.accountIds,
+        type: 'group',
+        message: data.message,
+        targetIds: [...new Set((data.targetKeys || []).map(x => String(x).split(':').slice(1).join(':')))],
+        targetPairs: (data.targetKeys || []).map(x => { const [accountId, ...rest] = String(x).split(':'); return { accountId, targetId: rest.join(':') }; }),
+        delayMs: (await getBusinessSettings()).defaultCampaignDelayMs,
+        status: 'scheduled',
+        scheduledAt: new Date(),
+        repeatEveryMs: data.repeatEveryMs,
+        endAt
+      });
+      await clearUiState(ctx.from.id, 'group_flow');
+      await ctx.reply('✅ <b>Auto Start scheduled</b>\\n\\nCampaign: ' + campaign._id + '\\nRepeat: every ' + Math.round(data.repeatEveryMs/60000) + ' minute(s)' + (endAt ? '\\nEnds: ' + endAt.toISOString() : '\\nEnds: Never'), { parse_mode: 'HTML', ...campaignControlKeyboard(campaign._id) });
+      return;
+    }
+
     for (const [key, type] of [['dm_flow','dm'],['group_flow','group']]) {
       const state = await getUiState(ctx.from.id, key);
       if (!state || state.data.step !== 'message') continue;
