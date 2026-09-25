@@ -39,12 +39,26 @@ export function registerAutoReplyV2Handlers(bot, config) {
     await ctx.answerCbQuery();
     const accounts = await Account.find({ ownerId: ctx.from.id, status: 'connected' }).sort({ createdAt: -1 }).lean();
     if (!accounts.length) return edit(ctx, '❌ Connect a Telegram account first.', simpleBackKeyboard());
+
+    // Auto Reply is currently configured per account. When the user has only
+    // one connected account, select it automatically so the flow cannot get
+    // stuck on the "one selected account" validation.
+    if (accounts.length === 1) {
+      const accountId = String(accounts[0]._id);
+      await UiState.findOneAndUpdate(
+        { ownerId: ctx.from.id, key },
+        { $set: { data: { step: 'manage', accountId }, expiresAt: new Date(Date.now()+15*60*1000) } },
+        { upsert: true }
+      );
+      return show(ctx, accountId);
+    }
+
     await UiState.findOneAndUpdate(
       { ownerId: ctx.from.id, key },
-      { $set: { data: { step: 'account' }, expiresAt: new Date(Date.now()+15*60*1000) } },
+      { $set: { data: { step: 'account', accountIds: [] }, expiresAt: new Date(Date.now()+15*60*1000) } },
       { upsert: true }
     );
-    await edit(ctx, '👤 <b>Select Account for Auto Reply</b>', accountPickerKeyboard(accounts, [], 'autoreply_account_done', 'autoreply_pick'));
+    await edit(ctx, '👤 <b>Select Account for Auto Reply</b>\n\nSelect exactly one account, then press Continue.', accountPickerKeyboard(accounts, [], 'autoreply_account_done', 'autoreply_pick'));
   });
 
   bot.action(/^autoreply_pick:(.+)$/, async ctx => {
@@ -80,11 +94,48 @@ export function registerAutoReplyV2Handlers(bot, config) {
 
   bot.action('autoreply_account_done', async ctx => {
     await ctx.answerCbQuery();
+
+    const accounts = await Account.find({ ownerId: ctx.from.id, status: 'connected' })
+      .sort({ createdAt: -1 })
+      .lean();
+    if (!accounts.length) {
+      return edit(ctx, '❌ No connected Telegram account is available.', simpleBackKeyboard('feature_autoreply'));
+    }
+
     const state = await UiState.findOne({ ownerId: ctx.from.id, key });
-    const ids = state?.data?.accountIds || [];
-    if (ids.length !== 1) return edit(ctx, '❌ Auto Reply currently requires one selected account.', simpleBackKeyboard('feature_autoreply'));
-    await UiState.findOneAndUpdate({ ownerId: ctx.from.id, key }, { $set: { data: { step: 'manage', accountId: ids[0] } } });
-    await show(ctx, ids[0]);
+    const connectedIds = new Set(accounts.map(a => String(a._id)));
+    let ids = [...new Set((state?.data?.accountIds || []).map(String))]
+      .filter(id => connectedIds.has(id));
+
+    // If there is exactly one connected account, use it even if the previous
+    // picker update raced with the Continue callback or the UI state expired.
+    if (ids.length === 0 && accounts.length === 1) {
+      ids = [String(accounts[0]._id)];
+    }
+
+    if (ids.length !== 1) {
+      const message = ids.length > 1
+        ? '❌ Select only one account for Auto Reply.'
+        : '❌ Select one account first, then press Continue.';
+      await UiState.findOneAndUpdate(
+        { ownerId: ctx.from.id, key },
+        { $set: { data: { ...(state?.data || {}), step: 'account', accountIds: ids }, expiresAt: new Date(Date.now()+15*60*1000) } },
+        { upsert: true }
+      );
+      return edit(
+        ctx,
+        '👤 <b>Select Account for Auto Reply</b>\n\n' + message,
+        accountPickerKeyboard(accounts, ids, 'autoreply_account_done', 'autoreply_pick')
+      );
+    }
+
+    const accountId = ids[0];
+    await UiState.findOneAndUpdate(
+      { ownerId: ctx.from.id, key },
+      { $set: { data: { step: 'manage', accountId }, expiresAt: new Date(Date.now()+15*60*1000) } },
+      { upsert: true }
+    );
+    await show(ctx, accountId);
   });
 
   bot.action(/^autoreply_template:(.+):(.+)$/, async ctx => {
