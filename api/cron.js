@@ -26,7 +26,13 @@ export default async function handler(req, res) {
 
   try {
     const config = await init();
-    const campaigns = await BusinessCampaign.find({ status: 'running' }).sort({ updatedAt: 1 }).limit(1).select('_id').lean();
+    const now = new Date();
+    const campaigns = await BusinessCampaign.find({
+      $or: [
+        { status: 'running' },
+        { status: 'scheduled', scheduledAt: { $lte: now } }
+      ]
+    }).sort({ updatedAt: 1 }).limit(1).select('_id').lean();
     const campaignResults = [];
 
     for (const campaign of campaigns) {
