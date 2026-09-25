@@ -44,7 +44,7 @@ export function registerAutoReplyV2Handlers(bot, config) {
       { $set: { data: { step: 'account' }, expiresAt: new Date(Date.now()+15*60*1000) } },
       { upsert: true }
     );
-    await edit(ctx, '👤 <b>Select Account for Auto Reply</b>', accountPickerKeyboard(accounts, [], 'autoreply_account_done'));
+    await edit(ctx, '👤 <b>Select Account for Auto Reply</b>', accountPickerKeyboard(accounts, [], 'autoreply_account_done', 'autoreply_pick'));
   });
 
   bot.action(/^autoreply_pick:(.+)$/, async ctx => {
@@ -59,7 +59,23 @@ export function registerAutoReplyV2Handlers(bot, config) {
       { $set: { data: { ...state.data, accountIds: [...selected] } } }
     );
     const accounts = await Account.find({ ownerId: ctx.from.id, status: 'connected' }).sort({ createdAt: -1 }).lean();
-    await edit(ctx, '👤 <b>Select Account for Auto Reply</b>\n\nSelected: ' + selected.size, accountPickerKeyboard(accounts, [...selected], 'autoreply_account_done'));
+    await edit(ctx, '👤 <b>Select Account for Auto Reply</b>\n\nSelected: ' + selected.size, accountPickerKeyboard(accounts, [...selected], 'autoreply_account_done', 'autoreply_pick'));
+  });
+
+  bot.action('autoreply_pick_all', async ctx => {
+    await ctx.answerCbQuery('All accounts selected');
+    const state = await UiState.findOne({ ownerId: ctx.from.id, key });
+    const accounts = await Account.find({ ownerId: ctx.from.id, status: 'connected' }).select('_id').lean();
+    await UiState.findOneAndUpdate({ ownerId: ctx.from.id, key }, { $set: { data: { ...(state?.data || {}), accountIds: accounts.map(a => String(a._id)) } } });
+    return edit(ctx, '👤 <b>Select Account for Auto Reply</b>\\n\\nSelected: ' + accounts.length, accountPickerKeyboard(accounts, accounts.map(a => String(a._id)), 'autoreply_account_done', 'autoreply_pick'));
+  });
+
+  bot.action('autoreply_pick_clear', async ctx => {
+    await ctx.answerCbQuery('Selection cleared');
+    const state = await UiState.findOne({ ownerId: ctx.from.id, key });
+    const accounts = await Account.find({ ownerId: ctx.from.id, status: 'connected' }).sort({ createdAt: -1 }).lean();
+    await UiState.findOneAndUpdate({ ownerId: ctx.from.id, key }, { $set: { data: { ...(state?.data || {}), accountIds: [] } } });
+    return edit(ctx, '👤 <b>Select Account for Auto Reply</b>\\n\\nSelected: 0', accountPickerKeyboard(accounts, [], 'autoreply_account_done', 'autoreply_pick'));
   });
 
   bot.action('autoreply_account_done', async ctx => {
