@@ -3,6 +3,7 @@ import { connectDb } from '../src/db.js';
 import { BusinessCampaign } from '../src/models/campaigns.js';
 import { processCampaignBatch } from '../src/services/businessCampaignService.js';
 import { pollAutoReplies } from '../src/services/autoReplyService.js';
+import { processAdBatch } from '../src/services/adDeliveryService.js';
 
 let ready;
 
@@ -40,11 +41,13 @@ export default async function handler(req, res) {
     }
 
     const autoReplyResults = await pollAutoReplies(config.encryptionKey, 10);
+    const adResults = await processAdBatch(config.encryptionKey, 5);
 
     res.status(200).json({
       ok: true,
       processedCampaigns: campaignResults.length,
       autoReplyAccounts: autoReplyResults.length,
+      adCampaigns: adResults.length,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
