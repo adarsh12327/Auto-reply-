@@ -1,6 +1,7 @@
 import { User } from '../db.js';
 import { mainKeyboard, joinRequiredKeyboard } from '../bot/keyboards.js';
 import { checkRequiredJoin } from '../services/accessService.js';
+import { ensureReferralProfile, rewardReferralIfEligible } from '../services/referralService.js';
 import { getBusinessSettings } from '../services/businessSettings.js';
 
 export async function startHandler(ctx) {
@@ -35,6 +36,9 @@ export async function startHandler(ctx) {
       );
     }
   }
+
+  await ensureReferralProfile(telegramId);
+  await rewardReferralIfEligible(telegramId, 'start').catch(() => {});
 
   const settings = await getBusinessSettings();
   const access = await checkRequiredJoin(ctx);
