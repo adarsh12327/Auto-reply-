@@ -316,11 +316,6 @@ export function registerDashboardHandlers(bot, config) {
     await edit(ctx, '👥 <b>GROUP MESSAGE</b>\n\nGroups are synchronized per Telegram account.\n\nUse your account details to refresh groups while the campaign builder is being rebuilt.', simpleBackKeyboard());
   });
 
-  bot.action('feature_autoreply', async ctx => {
-    await ctx.answerCbQuery();
-    await edit(ctx, '🤖 <b>SET AUTO REPLY</b>\n\nThe new per-sender cooldown system is being rebuilt around the protected login/session layer.\n\nDefault cooldown: 1 hour.', simpleBackKeyboard());
-  });
-
   bot.action('feature_ads', async ctx => {
     await ctx.answerCbQuery();
     await edit(ctx, '📢 <b>SET ADS</b>\n\nCreate paid advertisements using configured pricing and verified UPI payments.', simpleBackKeyboard());
