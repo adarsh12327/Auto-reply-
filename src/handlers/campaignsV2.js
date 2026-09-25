@@ -18,8 +18,13 @@ function picker(accounts, selected, done) {
 }
 
 async function edit(ctx, text, keyboard = simpleBackKeyboard()) {
-  try { await ctx.editMessageText(text, keyboard); }
-  catch (e) {
+  try {
+    if (ctx.callbackQuery) {
+      await ctx.editMessageText(text, keyboard);
+    } else {
+      await ctx.reply(text, keyboard);
+    }
+  } catch (e) {
     if (!String(e?.description || e?.message || '').includes('message is not modified')) throw e;
   }
 }
