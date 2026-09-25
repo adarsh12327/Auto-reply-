@@ -99,8 +99,36 @@ export function registerAdminV2Handlers(bot, config) {
     await ctx.answerCbQuery();
     if (!(await adminOnly(ctx, 'ads'))) return;
     const rows = await AdCampaign.find({}).sort({ createdAt: -1 }).limit(15).lean();
-    const body = rows.length ? rows.map((a,i) => (i+1)+'. '+a.title+' · '+a.status+' · ₹'+a.price).join('\n') : 'No ads.';
-    await render(ctx, '📢 <b>ADS</b>\n\n' + body);
+    const body = rows.length ? rows.map((a,i) => (i+1)+'. '+a.title+' · '+a.status+' · ₹'+a.price).join('\\n') : 'No ads.';
+    const pending = rows.filter(a => a.status === 'pending_review');
+    const buttons = pending.map(a => [
+      { text: '✅ Approve ' + a.title.slice(0,18), callback_data: 'admin_ad_approve:' + a._id },
+      { text: '❌ Reject', callback_data: 'admin_ad_reject:' + a._id }
+    ]);
+    await render(ctx, '📢 <b>ADS</b>\\n\\n' + body, buttons.length ? { reply_markup: { inline_keyboard: buttons.concat([[{ text: '⬅️ Admin', callback_data: 'admin_dashboard' }]]) } } : adminKeyboard());
+  });
+
+  bot.action(/^admin_ad_approve:(.+)$/, async ctx => {
+    await ctx.answerCbQuery('Approving...');
+    if (!(await adminOnly(ctx, 'ads'))) return;
+    const ad = await AdCampaign.findById(ctx.match[1]);
+    if (!ad) return render(ctx, '❌ Ad not found.');
+    ad.paymentStatus = 'approved';
+    ad.status = 'approved';
+    ad.approvedAt = new Date();
+    await ad.save();
+    await render(ctx, '✅ <b>Ad approved</b>\\n\\n' + ad.title);
+  });
+
+  bot.action(/^admin_ad_reject:(.+)$/, async ctx => {
+    await ctx.answerCbQuery('Rejecting...');
+    if (!(await adminOnly(ctx, 'ads'))) return;
+    const ad = await AdCampaign.findById(ctx.match[1]);
+    if (!ad) return render(ctx, '❌ Ad not found.');
+    ad.paymentStatus = 'rejected';
+    ad.status = 'rejected';
+    await ad.save();
+    await render(ctx, '❌ <b>Ad rejected</b>\\n\\n' + ad.title);
   });
 
   bot.action('admin_payments', async ctx => {
