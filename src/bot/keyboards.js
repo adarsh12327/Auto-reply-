@@ -127,3 +127,10 @@ export const paginationKeyboard = (prefix, page, totalPages, back = 'main_menu')
   if (page < totalPages - 1) row.push(cb('▶️', prefix + ':' + (page + 1)));
   return Markup.inlineKeyboard([row, [cb('⬅️ Back', back)]]);
 };
+
+// QR login controls used by the protected Telegram account login handler.
+// Keep the callback names stable because account.js relies on them.
+export const qrLoginKeyboard = accountId => Markup.inlineKeyboard([
+  [cb('🔄 Check QR Login', 'account_qr_check:' + accountId)],
+  [cb('❌ Cancel Login', 'account_qr_cancel:' + accountId)]
+]);
