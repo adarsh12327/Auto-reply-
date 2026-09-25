@@ -1,7 +1,29 @@
 import { Markup } from 'telegraf';
 
 export const safeTelegramText = value => String(value ?? '').replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '�').slice(0, 64);
-const cb = (text, data) => Markup.button.callback(safeTelegramText(text), safeTelegramText(data));
+
+// Telegram callback_data is limited to 1-64 UTF-8 bytes, not UTF-16
+// characters. Keep callback payloads valid even when dynamic data contains
+// multi-byte characters.
+export const safeTelegramCallbackData = value => {
+  const text = String(value ?? '')
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '�')
+    .replace(/[\\u0000-\\u001F\\u007F]/g, '');
+  let out = '';
+  let bytes = 0;
+  for (const ch of text) {
+    const size = Buffer.byteLength(ch, 'utf8');
+    if (bytes + size > 64) break;
+    out += ch;
+    bytes += size;
+  }
+  return out || 'x';
+};
+
+const cb = (text, data) => Markup.button.callback(
+  safeTelegramText(text),
+  safeTelegramCallbackData(data)
+);
 
 export const mainKeyboard = () => Markup.inlineKeyboard([
   [cb('📨 Start Mass DM', 'feature_dm'), cb('👥 Group Message', 'feature_group')],
