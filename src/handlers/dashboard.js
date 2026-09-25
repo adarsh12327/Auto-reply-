@@ -290,4 +290,4 @@ export function registerDashboardHandlers(bot, config) {
     if (!templates.length) return edit(ctx, '👁️ <b>PREVIEW MESSAGE</b>\n\nNo saved messages yet.', simpleBackKeyboard());
     await edit(ctx, '👁️ <b>PREVIEW MESSAGE</b>\n\nSelect a saved message to preview.', templateKeyboard(templates));
   });
-
+}
