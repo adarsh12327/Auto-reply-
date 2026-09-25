@@ -6,6 +6,15 @@
     },
     "api/setup.js": {
       "maxDuration": 30
+    },
+    "api/cron.js": {
+      "maxDuration": 300
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron",
+      "schedule": "* * * * *"
+    }
+  ]
 }
