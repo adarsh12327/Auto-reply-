@@ -1,6 +1,6 @@
 import { Markup } from 'telegraf';
 
-export const safeTelegramText = value => String(value ?? '').replace(/[\uD800-\uDFFF]/g, '�').slice(0, 64);
+export const safeTelegramText = value => String(value ?? '').replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '�').slice(0, 64);
 const cb = (text, data) => Markup.button.callback(safeTelegramText(text), safeTelegramText(data));
 
 export const mainKeyboard = () => Markup.inlineKeyboard([
