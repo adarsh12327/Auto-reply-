@@ -37,7 +37,7 @@ export default async function handler(req, res) {
       const currentWebhook = await bot.telegram.getWebhookInfo();
       if (currentWebhook.url !== stableWebhookUrl) {
         await bot.telegram.setWebhook(stableWebhookUrl, {
-          allowed_updates: ['message', 'callback_query', 'chat_member']
+          allowed_updates: ['message', 'callback_query', 'chat_member', 'chat_join_request']
         });
       }
     } catch (webhookError) {
