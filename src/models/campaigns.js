@@ -24,7 +24,8 @@ const campaignSchema = new mongoose.Schema({
   startedAt: Date,
   completedAt: Date,
   pausedAt: Date,
-  lastError: { type: String, default: '' }
+  lastError: { type: String, default: '' },
+  workerLockUntil: { type: Date, default: null, index: true }
 }, { timestamps: true });
 
 campaignSchema.index({ ownerId: 1, createdAt: -1 });
