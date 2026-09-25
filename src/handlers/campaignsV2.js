@@ -236,7 +236,7 @@ export function registerCampaignV2Handlers(bot, config) {
     const accountIds = state.data.accountIds || [];
     const settings = await getBusinessSettings();
     const limit = type === 'dm' ? settings.freeDmLimit : settings.maxGroupsPerCampaign;
-    if (targetIds.length > limit) return edit(ctx, '❌ Campaign exceeds the configured limit: ' + limit);
+    if (targetPairs.length > limit) return edit(ctx, '❌ Campaign exceeds the configured limit: ' + limit);
 
     const campaign = await createCampaign({
       ownerId: ctx.from.id,
@@ -244,6 +244,10 @@ export function registerCampaignV2Handlers(bot, config) {
       type,
       message: state.data.message,
       targetIds,
+      targetPairs: targetPairs.map(x => {
+        const [accountId, ...rest] = String(x).split(':');
+        return { accountId, targetId: rest.join(':') };
+      }),
       delayMs: settings.defaultCampaignDelayMs
     });
 
