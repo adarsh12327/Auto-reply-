@@ -237,25 +237,26 @@ export function registerAdminV2Handlers(bot, config) {
   bot.action('admin_support', async ctx => {
     await ctx.answerCbQuery();
     if (!(await adminOnly(ctx, 'support'))) return;
-    await render(ctx, '🆘 <b>SUPPORT</b>\n\nSupport ticket routing is reserved for the support-service phase.', adminKeyboard());
+    const rows = await (await import('../models/support.js')).SupportTicket.find({ status: { $in: ['open','pending'] } }).sort({ updatedAt: -1 }).limit(10).lean();
+    await render(ctx, rows.length ? '🆘 <b>OPEN SUPPORT TICKETS</b>\\n\\n' + rows.map(t => t._id+' · user '+t.ownerId+' · '+t.status).join('\\n') + '\\n\\nReply: <code>/supportreply TICKET_ID MESSAGE</code>' : '🆘 <b>SUPPORT</b>\\n\\nNo open tickets.', adminKeyboard());
   });
 
   bot.action('admin_howto', async ctx => {
     await ctx.answerCbQuery();
     if (!(await adminOnly(ctx, 'settings'))) return;
-    await render(ctx, '📖 <b>HOW TO USE</b>\n\nConfigure the guide URL through the settings service in the next admin configuration phase.', adminKeyboard());
+    await render(ctx, '📖 <b>HOW TO USE</b>\\n\\nSet the user guide with:\\n<code>/setsetting howToUrl https://...</code>', adminKeyboard());
   });
 
   bot.action('admin_create_bot', async ctx => {
     await ctx.answerCbQuery();
     if (!(await adminOnly(ctx, 'settings'))) return;
-    await render(ctx, '🤖 <b>CREATE YOUR OWN BOT</b>\n\nThe owner destination and predefined message are admin-configurable through the business settings layer.', adminKeyboard());
+    await render(ctx, '🤖 <b>CREATE YOUR OWN BOT</b>\\n\\nConfigure owner:\\n<code>/setsetting createBotOwner username</code>\\n\\nConfigure message:\\n<code>/setsetting createBotMessage your text</code>', adminKeyboard());
   });
 
   bot.action('admin_redeem', async ctx => {
     await ctx.answerCbQuery();
     if (!(await adminOnly(ctx, 'redeem'))) return;
-    await render(ctx, '🎁 <b>REDEEM MANAGEMENT</b>\n\nRedeem-code CRUD will be connected in the wallet phase.', adminKeyboard());
+    await render(ctx, '🎁 <b>REDEEM MANAGEMENT</b>\\n\\nCreate: <code>/redeemcreate CODE AMOUNT LIMIT</code>\\nDisable: <code>/redeemdisable CODE</code>', adminKeyboard());
   });
 
   bot.action('admin_referral', async ctx => {
@@ -337,6 +338,15 @@ export function registerAdminV2Handlers(bot, config) {
     if (!code) return ctx.reply('Usage: /redeemdisable CODE');
     await RedeemCode.updateOne({ code }, { $set: { active: false } });
     await ctx.reply('✅ Redeem code disabled.');
+  });
+
+  bot.command('unban', async ctx => {
+    const record = await adminOnly(ctx, 'users');
+    if (!record) return;
+    const id = Number(ctx.message.text.replace(/^\\/unban\\s*/i,'').trim());
+    if (!Number.isSafeInteger(id)) return ctx.reply('Usage: /unban TELEGRAM_ID');
+    await User.updateOne({ telegramId: id }, { $set: { blocked: false } });
+    await ctx.reply('✅ User unbanned: '+id);
   });
 
   bot.command('unadmin', async ctx => {
