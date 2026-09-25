@@ -3,7 +3,7 @@ import { AdCampaign } from '../models/ads.js';
 import { AdParticipant } from '../models/adParticipants.js';
 import { UiState } from '../models/uiState.js';
 import { getBusinessSettings } from '../services/businessSettings.js';
-import { accountPickerKeyboard, simpleBackKeyboard } from '../bot/keyboards.js';
+import { accountPickerKeyboard, simpleBackKeyboard, safeTelegramText } from '../bot/keyboards.js';
 import { Account } from '../db.js';
 
 const key = 'ads_flow';
@@ -46,7 +46,7 @@ export function registerAdsHandlers(bot, config) {
     await ctx.answerCbQuery();
     const accounts = await Account.find({ ownerId: ctx.from.id, status: 'connected' }).lean();
     if (!accounts.length) return edit(ctx, '❌ Connect a Telegram account first.');
-    const rows = accounts.map(a => [Markup.button.callback((a.phoneMasked || 'Account'), 'ad_participate_toggle:' + a._id)]);
+    const rows = accounts.map(a => [Markup.button.callback(safeTelegramText(a.phoneMasked || 'Account'), 'ad_participate_toggle:' + a._id)]);
     rows.push([Markup.button.callback('⬅️ Back', 'feature_ads')]);
     await edit(ctx, '🤝 <b>AD DELIVERY PARTICIPATION</b>\n\nOpt in only if you agree to deliver eligible ads to authorized recipients from this account.', Markup.inlineKeyboard(rows));
   });
