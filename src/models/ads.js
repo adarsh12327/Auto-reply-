@@ -29,7 +29,8 @@ const deliverySchema = new mongoose.Schema({
   status: { type: String, enum: ['pending', 'sent', 'failed'], default: 'pending' },
   earning: { type: Number, default: 0 },
   processedAt: Date,
-  error: { type: String, default: '' }
+  error: { type: String, default: '' },
+  earningCredited: { type: Boolean, default: false }
 }, { timestamps: true });
 
 deliverySchema.index({ adId: 1, accountId: 1, targetId: 1 }, { unique: true });
