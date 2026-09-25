@@ -77,7 +77,8 @@ export function createBot(config) {
       code: error?.code,
       updateType: ctx?.updateType,
       callbackData: ctx?.callbackQuery?.data,
-      command: ctx?.message?.text
+      command: ctx?.message?.text,
+      stack: error?.stack
     });
     if (ctx?.callbackQuery) return ctx.answerCbQuery().catch(() => {});
     return ctx.reply('❌ Something went wrong. Please try again.').catch(() => {});
