@@ -28,10 +28,9 @@ export function registerJoinRequestHandlers(bot) {
   });
 
   bot.action('joinreq_enable', async ctx => {
-    await ctx.answerCbQuery();
+    await ctx.answerCbQuery('Enabled');
     await setBusinessSetting('joinRequestEnabled', true, ctx.from.id);
-    await ctx.reply('✅ Join Request DM enabled.');
-    await ctx.answerCbQuery('Enabled').catch(()=>{});
+    await edit(ctx, '✅ Join Request DM enabled.', Markup.inlineKeyboard([[Markup.button.callback('⬅️ Back', 'feature_join_request')]]));
   });
 
   bot.action('joinreq_disable', async ctx => {
