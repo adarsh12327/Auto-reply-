@@ -6,6 +6,7 @@ import { AdminUser } from '../models/admin.js';
 import { RedeemCode } from '../models/redeem.js';
 import { UiState } from '../models/uiState.js';
 import { getBusinessSettings, setBusinessSetting } from '../services/businessSettings.js';
+import { changeWallet } from '../services/walletService.js';
 import { adminKeyboard, simpleBackKeyboard } from '../bot/keyboards.js';
 
 const stateKey = 'admin_flow';
@@ -136,8 +137,37 @@ export function registerAdminV2Handlers(bot, config) {
     await ctx.answerCbQuery();
     if (!(await adminOnly(ctx, 'payments'))) return;
     const rows = await WalletTransaction.find({ type: 'deposit' }).sort({ createdAt: -1 }).limit(15).lean();
-    const body = rows.length ? rows.map((x,i) => (i+1)+'. '+x.ownerId+' · ₹'+x.amount+' · '+x.status).join('\n') : 'No deposit transactions.';
-    await render(ctx, '💳 <b>PAYMENTS</b>\n\n' + body);
+    const body = rows.length ? rows.map((x,i) => (i+1)+'. '+x.ownerId+' · ₹'+x.amount+' · '+x.status+' · '+(x.reference||'no ref')).join('\\n') : 'No deposit transactions.';
+    const pending = rows.filter(x => x.status === 'pending');
+    const buttons = pending.map(x => [
+      { text: '✅ Approve ₹'+x.amount, callback_data: 'admin_deposit_approve:'+x.transactionId },
+      { text: '❌ Reject', callback_data: 'admin_deposit_reject:'+x.transactionId }
+    ]);
+    await render(ctx, '💳 <b>PAYMENTS</b>\\n\\n' + body, buttons.length ? { reply_markup: { inline_keyboard: buttons.concat([[{ text:'⬅️ Admin', callback_data:'admin_dashboard' }]]) } } : adminKeyboard());
+  });
+
+  bot.action(/^admin_deposit_approve:(.+)$/, async ctx => {
+    await ctx.answerCbQuery('Approving...');
+    if (!(await adminOnly(ctx, 'payments'))) return;
+    const tx = await WalletTransaction.findOne({ transactionId: ctx.match[1], type: 'deposit', status: 'pending' });
+    if (!tx) return render(ctx, '❌ Deposit is not pending.');
+    await changeWallet({
+      ownerId: tx.ownerId,
+      amount: tx.amount,
+      type: 'deposit',
+      reference: tx.reference,
+      description: 'Admin-approved UPI deposit',
+      transactionId: 'CREDIT_' + tx.transactionId
+    });
+    await WalletTransaction.updateOne({ _id: tx._id, status: 'pending' }, { $set: { status: 'approved' } });
+    await render(ctx, '✅ <b>Deposit approved</b>\\n\\nUser: '+tx.ownerId+'\\nAmount: ₹'+tx.amount);
+  });
+
+  bot.action(/^admin_deposit_reject:(.+)$/, async ctx => {
+    await ctx.answerCbQuery('Rejecting...');
+    if (!(await adminOnly(ctx, 'payments'))) return;
+    const tx = await WalletTransaction.findOneAndUpdate({ transactionId: ctx.match[1], type: 'deposit', status: 'pending' }, { $set: { status: 'rejected' } }, { new: true });
+    await render(ctx, tx ? '❌ <b>Deposit rejected</b>\\n\\nUser: '+tx.ownerId : '❌ Deposit is not pending.');
   });
 
   bot.action('admin_wallet', async ctx => {
