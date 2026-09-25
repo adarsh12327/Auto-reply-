@@ -11,7 +11,7 @@ import { syncAccountGroups } from '../services/accountService.js';
 import { createCampaign, processCampaignBatch, pauseBusinessCampaign, resumeBusinessCampaign, stopBusinessCampaign } from '../services/businessCampaignService.js';
 import { accountPickerKeyboard, simpleBackKeyboard, campaignControlKeyboard, messageInputKeyboard } from '../bot/keyboards.js';
 
-function picker(accounts, selected, done) {
+function safeTelegramText(value) { return String(value ?? '').replace(/[\\uD800-\\uDFFF]/g, '�'); }\n\nfunction picker(accounts, selected, done) {
   return accountPickerKeyboard(accounts, selected, done);
 }
 
@@ -42,7 +42,7 @@ async function showDmTargets(ctx) {
   if (!rows.length) return edit(ctx, '🔎 <b>No eligible DM recipients found.</b>\n\nThe selected accounts need real incoming/private contact history before a recipient can be used for Mass DM.', simpleBackKeyboard('feature_dm'));
   await setUiState(ctx.from.id, 'dm_flow', { step: 'targets', accountIds: ids, targetKeys: [], type: 'dm' });
   const buttons = rows.slice(0, 30).map(r => [
-    Markup.button.callback('☐ ' + (r.name || r.username || r.telegramUserId).slice(0, 25), 'dm_target:' + r.accountId + ':' + r.telegramUserId)
+    Markup.button.callback('☐ ' + safeTelegramText(r.name || r.username || r.telegramUserId).slice(0, 25), 'dm_target:' + r.accountId + ':' + r.telegramUserId)
   ]);
   buttons.push([Markup.button.callback('☑️ Use All Eligible', 'dm_targets_all')]);
   buttons.push([Markup.button.callback('✉️ Continue', 'dm_targets_done')]);
@@ -58,7 +58,7 @@ async function showGroupTargets(ctx) {
   if (!rows.length) return edit(ctx, '🔎 <b>No writable groups found.</b>\n\nRefresh the selected accounts and make sure the Telegram accounts are members with permission to post.', simpleBackKeyboard('feature_group'));
   await setUiState(ctx.from.id, 'group_flow', { ...state.data, step: 'targets', accountIds: ids, targetKeys: [], type: 'group' });
   const buttons = rows.slice(0, 30).map(r => [
-    Markup.button.callback('☐ ' + (r.name || r.telegramGroupId).slice(0, 25), 'group_target:' + r.accountId + ':' + r.telegramGroupId)
+    Markup.button.callback('☐ ' + safeTelegramText(r.name || r.telegramGroupId).slice(0, 25), 'group_target:' + r.accountId + ':' + r.telegramGroupId)
   ]);
   buttons.push([Markup.button.callback('☑️ Use All Writable Groups', 'group_targets_all')]);
   buttons.push([Markup.button.callback('✉️ Continue', 'group_targets_done')]);
@@ -71,7 +71,7 @@ async function showMessageChoice(ctx, type) {
   const state = await getUiState(ctx.from.id, key);
   if (!state?.data?.targetKeys?.length) return edit(ctx, '❌ Select at least one target.', simpleBackKeyboard(type === 'dm' ? 'feature_dm' : 'feature_group'));
   const templates = await MessageTemplate.find({ ownerId: ctx.from.id }).sort({ active: -1, createdAt: -1 }).limit(10).lean();
-  const rows = templates.map(t => [Markup.button.callback((t.active ? '🟢 ' : '⚪ ') + t.name, 'campaign_template:' + type + ':' + t._id)]);
+  const rows = templates.map(t => [Markup.button.callback(safeTelegramText((t.active ? '🟢 ' : '⚪ ') + t.name), 'campaign_template:' + type + ':' + t._id)]);
   rows.push([Markup.button.callback('✏️ Write New Message', 'campaign_write:' + type)]);
   rows.push([Markup.button.callback('⬅️ Back', type === 'dm' ? 'feature_dm' : 'feature_group')]);
   await edit(ctx, '💬 <b>SELECT MESSAGE</b>\n\nUse a saved template or write a new campaign message.', Markup.inlineKeyboard(rows));
