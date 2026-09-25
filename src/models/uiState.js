@@ -4,7 +4,7 @@ const schema = new mongoose.Schema({
   ownerId: { type: Number, index: true, required: true },
   key: { type: String, required: true },
   data: { type: mongoose.Schema.Types.Mixed, default: {} },
-  expiresAt: { type: Date, index: true }
+  expiresAt: { type: Date }
 }, { timestamps: true });
 
 schema.index({ ownerId: 1, key: 1 }, { unique: true });
