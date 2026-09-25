@@ -13,7 +13,7 @@ function isFloodWait(error) {
   return m ? Number(m[1]) : 0;
 }
 
-export async function createCampaign({ ownerId, accountIds, type, message, targetIds, targetPairs = null, delayMs, templateId = null }) {
+export async function createCampaign({ ownerId, accountIds, type, message, targetIds, targetPairs = null, delayMs, templateId = null, status = 'draft', scheduledAt = null, repeatEveryMs = 0, endAt = null }) {
   if (!Array.isArray(accountIds) || !accountIds.length) throw new Error('Select at least one account.');
   if (!message?.trim()) throw new Error('Campaign message is required.');
   if (!Array.isArray(targetIds) || !targetIds.length) throw new Error('No eligible recipients or groups selected.');
@@ -33,7 +33,10 @@ export async function createCampaign({ ownerId, accountIds, type, message, targe
     targetIds: [...new Set(pairs.map(x => x.targetId))],
     delayMs: Math.max(1000, Number(delayMs) || 20000),
     messageTemplateId: templateId,
-    stats: { total: pairs.length, sent: 0, failed: 0, skipped: 0 }
+    stats: { total: pairs.length, sent: 0, failed: 0, skipped: 0 },
+    scheduledAt,
+    repeatEveryMs,
+    endAt
   });
 
   const recipients = pairs.map(pair => ({
