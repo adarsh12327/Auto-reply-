@@ -56,6 +56,31 @@ export function registerWalletHandlers(bot) {
       await ctx.reply('❌ Cancelled.');
       return;
     }
+    if (state.data?.step === 'deposit_amount') {
+      const amount = Number(text);
+      if (!Number.isFinite(amount) || amount <= 0 || amount > 1000000) return ctx.reply('❌ Enter a valid amount.');
+      const tx = await WalletTransaction.create({
+        transactionId: 'DEP_' + crypto.randomBytes(8).toString('hex'),
+        ownerId: ctx.from.id,
+        amount,
+        type: 'deposit',
+        status: 'pending',
+        reference: '',
+        description: 'Manual UPI deposit pending verification'
+      });
+      await UiState.findOneAndUpdate({ _id: state._id }, { $set: { data: { step: 'deposit_reference', txId: tx.transactionId } } });
+      await ctx.reply('💳 Payment received? Send the UPI transaction ID/reference now.');
+      return;
+    }
+    if (state.data?.step === 'deposit_reference') {
+      const tx = await WalletTransaction.findOne({ transactionId: state.data.txId, ownerId: ctx.from.id, status: 'pending' });
+      if (!tx) return ctx.reply('❌ Deposit request not found or already processed.');
+      tx.reference = text.slice(0,200);
+      await tx.save();
+      await UiState.deleteOne({ _id: state._id });
+      await ctx.reply('✅ Deposit proof submitted.\\n\\nTransaction: ' + tx.transactionId + '\\nStatus: Pending admin verification.');
+      return;
+    }
     if (state.data?.step === 'redeem') {
       const code = text.toUpperCase();
       const session = await mongoose.startSession();
