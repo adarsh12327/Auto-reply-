@@ -11,7 +11,7 @@ import { syncAccountGroups } from '../services/accountService.js';
 import { createCampaign, processCampaignBatch, pauseBusinessCampaign, resumeBusinessCampaign, stopBusinessCampaign } from '../services/businessCampaignService.js';
 import { accountPickerKeyboard, simpleBackKeyboard, campaignControlKeyboard, messageInputKeyboard } from '../bot/keyboards.js';
 
-function safeTelegramText(value) { return String(value ?? '').replace(/[\\uD800-\\uDFFF]/g, '�'); }\n\nfunction picker(accounts, selected, done) {
+function safeTelegramText(value) { const text = String(value ?? ''); return text.split('').filter(ch => { const code = ch.charCodeAt(0); return code < 55296 || code > 57343; }).join(''); }
   return accountPickerKeyboard(accounts, selected, done);
 }
 
@@ -56,7 +56,8 @@ async function showGroupTargets(ctx) {
   for (const id of ids) await syncAccountGroups(ctx.from.id, id, process.env.SESSION_ENCRYPTION_KEY ? Buffer.from(process.env.SESSION_ENCRYPTION_KEY, 'hex') : null).catch(() => {});
   const rows = await ManagedGroup.find({ ownerId: ctx.from.id, accountId: { $in: ids }, canPost: true }).sort({ name: 1 }).limit(200).lean();
   if (!rows.length) return edit(ctx, '🔎 <b>No writable groups found.</b>\n\nRefresh the selected accounts and make sure the Telegram accounts are members with permission to post.', simpleBackKeyboard('feature_group'));
-  await setUiState(ctx.from.id, 'group_flow', { ...state.data, step: 'targets', accountIds: ids, targetKeys: [], type: 'group' });
+  const state = await getUiState(ctx.from.id, 'group_flow');
+  await setUiState(ctx.from.id, 'group_flow', { ...(state?.data || {}), step: 'targets', accountIds: ids, targetKeys: [], type: 'group' });
   const buttons = rows.slice(0, 30).map(r => [
     Markup.button.callback('☐ ' + safeTelegramText(r.name || r.telegramGroupId).slice(0, 25), 'group_target:' + r.accountId + ':' + r.telegramGroupId)
   ]);
