@@ -7,6 +7,7 @@ import { registerDashboardHandlers } from '../handlers/dashboard.js';
 import { registerCampaignV2Handlers } from '../handlers/campaignsV2.js';
 import { registerAutoReplyV2Handlers } from '../handlers/autoReplyV2.js';
 import { registerJoinRequestHandlers } from '../handlers/joinRequest.js';
+import { registerAdsHandlers } from '../handlers/ads.js';
 import { registerAdminV2Handlers } from '../handlers/adminV2.js';
 
 export function createBot(config) {
@@ -43,6 +44,7 @@ export function createBot(config) {
   registerCampaignV2Handlers(bot, config);
   registerAutoReplyV2Handlers(bot, config);
   registerJoinRequestHandlers(bot, config);
+  registerAdsHandlers(bot, config);
   registerAccountHandlers(bot, config);
   registerAdminV2Handlers(bot, config);
 
