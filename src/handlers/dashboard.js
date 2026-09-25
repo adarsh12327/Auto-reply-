@@ -255,15 +255,6 @@ export function registerDashboardHandlers(bot, config) {
     await edit(ctx, settings.howToUrl ? '📖 <b>HOW TO USE</b>\n\nOpen the configured guide/video below.' : '📖 <b>HOW TO USE</b>\n\nAdmin has not configured the guide yet.', buttons);
   });
 
-  bot.action('feature_support', async ctx => {
-    await ctx.answerCbQuery();
-    const settings = await getBusinessSettings();
-    const buttons = settings.supportUrl
-      ? Markup.inlineKeyboard([[Markup.button.url('🆘 Contact Support', settings.supportUrl)], [Markup.button.callback('⬅️ Dashboard', 'main_menu')]])
-      : simpleBackKeyboard();
-    await edit(ctx, settings.supportUrl ? '🆘 <b>SUPPORT</b>\n\nUse the configured support destination.' : '🆘 <b>SUPPORT</b>\n\nSupport destination is not configured yet.', buttons);
-  });
-
   bot.action('feature_create_bot', async ctx => {
     await ctx.answerCbQuery();
     const settings = await getBusinessSettings();
