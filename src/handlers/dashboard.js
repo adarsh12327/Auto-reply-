@@ -306,16 +306,6 @@ export function registerDashboardHandlers(bot, config) {
     await edit(ctx, '👁️ <b>PREVIEW MESSAGE</b>\n\nSelect a saved message to preview.', templateKeyboard(templates));
   });
 
-  bot.action('feature_dm', async ctx => {
-    await ctx.answerCbQuery();
-    await edit(ctx, '📨 <b>START MASS DM</b>\n\nAuthorized recipients only.\n\nFree default limit: 20\nPremium default limit: 200\n\nThe full campaign builder is being rebuilt with persistent campaign state.', simpleBackKeyboard());
-  });
-
-  bot.action('feature_group', async ctx => {
-    await ctx.answerCbQuery();
-    await edit(ctx, '👥 <b>GROUP MESSAGE</b>\n\nGroups are synchronized per Telegram account.\n\nUse your account details to refresh groups while the campaign builder is being rebuilt.', simpleBackKeyboard());
-  });
-
   bot.action('feature_ads', async ctx => {
     await ctx.answerCbQuery();
     await edit(ctx, '📢 <b>SET ADS</b>\n\nCreate paid advertisements using configured pricing and verified UPI payments.', simpleBackKeyboard());
