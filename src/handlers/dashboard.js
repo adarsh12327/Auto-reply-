@@ -14,6 +14,41 @@ import {
   templateKeyboard,
   templateManageKeyboard,
   messageInputKeyboard
+  bot.on('text', async (ctx, next) => {
+    const state = await getUiState(ctx.from.id, stateKey);
+    if (!state) return next();
+    const text = String(ctx.message.text || '').trim();
+    if (text === '/cancel') {
+      await clearUiState(ctx.from.id, stateKey);
+      await ctx.reply('❌ Cancelled.');
+      return;
+    }
+    if (state.data?.action === 'template_name') {
+      if (!text) return ctx.reply('❌ Message name cannot be empty.');
+      const name = text.slice(0, 100);
+      const existing = await MessageTemplate.findOne({ ownerId: ctx.from.id, name }).lean();
+      if (existing) return ctx.reply('❌ A message with this name already exists. Send another name.');
+      const template = await MessageTemplate.create({ ownerId: ctx.from.id, name, type: 'text', text: '', active: false });
+      await setUiState(ctx.from.id, stateKey, { action: 'template_edit', templateId: String(template._id) });
+      await ctx.reply('✏️ Now send the message text for <b>' + name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</b>.', { parse_mode: 'HTML' });
+      return;
+    }
+    if (state.data?.action === 'template_edit') {
+      const template = await MessageTemplate.findOne({ _id: state.data.templateId, ownerId: ctx.from.id });
+      if (!template) {
+        await clearUiState(ctx.from.id, stateKey);
+        return ctx.reply('❌ Message template not found.');
+      }
+      template.text = text.slice(0, 4096);
+      template.type = 'text';
+      await template.save();
+      await clearUiState(ctx.from.id, stateKey);
+      await ctx.reply('✅ Message saved successfully.');
+      return;
+    }
+    return next();
+  });
+
 } from '../bot/keyboards.js';
 import { getBusinessSettings } from '../services/businessSettings.js';
 import { setUiState, getUiState, clearUiState } from '../services/uiState.js';
