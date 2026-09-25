@@ -33,6 +33,7 @@ export async function createCampaign({ ownerId, accountIds, type, message, targe
     targetIds: [...new Set(pairs.map(x => x.targetId))],
     delayMs: Math.max(1000, Number(delayMs) || 20000),
     messageTemplateId: templateId,
+    status,
     stats: { total: pairs.length, sent: 0, failed: 0, skipped: 0 },
     scheduledAt,
     repeatEveryMs,
