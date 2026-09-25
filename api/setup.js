@@ -22,7 +22,7 @@ export default async function handler(req, res) {
     const bot = new Telegraf(botToken);
 
     await bot.telegram.setWebhook(webhookUrl, {
-      allowed_updates: ['message', 'callback_query', 'chat_member']
+      allowed_updates: ['message', 'callback_query', 'chat_member', 'chat_join_request']
     });
 
     const info = await bot.telegram.getWebhookInfo();
