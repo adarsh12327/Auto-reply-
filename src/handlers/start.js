@@ -1,5 +1,7 @@
 import { User } from '../db.js';
-import { mainKeyboard } from '../bot/keyboards.js';
+import { mainKeyboard, joinRequiredKeyboard } from '../bot/keyboards.js';
+import { checkRequiredJoin } from '../services/accessService.js';
+import { getBusinessSettings } from '../services/businessSettings.js';
 
 export async function startHandler(ctx) {
   const telegramId = ctx.from.id;
@@ -26,40 +28,26 @@ export async function startHandler(ctx) {
 
   if (payload.startsWith('ref_')) {
     const referrerId = Number(payload.slice(4));
-
     if (Number.isSafeInteger(referrerId) && referrerId !== telegramId) {
-      const updated = await User.findOneAndUpdate(
-        {
-          telegramId,
-          $or: [
-            { referrerId: null },
-            { referrerId: { $exists: false } }
-          ]
-        },
-        { $set: { referrerId } },
-        { new: true }
+      await User.updateOne(
+        { telegramId, $or: [{ referrerId: null }, { referrerId: { $exists: false } }] },
+        { $set: { referrerId } }
       );
-
-      if (updated) {
-        const referrer = await User.findOne({ telegramId: referrerId }).select('_id').lean();
-
-        if (referrer) {
-          await User.updateOne(
-            { telegramId: referrerId },
-            { $inc: { referrals: 1 } }
-          );
-        } else {
-          await User.updateOne(
-            { telegramId },
-            { $set: { referrerId: null } }
-          );
-        }
-      }
     }
   }
 
+  const settings = await getBusinessSettings();
+  const access = await checkRequiredJoin(ctx);
+  if (!access.allowed) {
+    await ctx.reply(
+      '🔐 <b>Join verification required</b>\n\nPlease join the required channel and then tap <b>I Joined — Verify</b>.',
+      { parse_mode: 'HTML', ...joinRequiredKeyboard(access.url) }
+    );
+    return;
+  }
+
   await ctx.reply(
-    '🚀 TELEGRAM BUSINESS MANAGER\n\nManage your connected Telegram account, customer contacts, auto-replies and campaigns from one professional dashboard.\n\nChoose an option below to get started.',
-    mainKeyboard()
+    '🏠 <b>BUSINESS COMMAND CENTER</b>\n\nPromote products, manage Telegram accounts, run authorized campaigns and handle customer automation from one place.\n\n<i>Plan:</i> ' + (settings.maintenanceMode ? 'Maintenance' : 'Active'),
+    { parse_mode: 'HTML', ...mainKeyboard() }
   );
 }
