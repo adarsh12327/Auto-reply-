@@ -3,6 +3,7 @@ import { BusinessCampaign } from '../models/campaigns.js';
 import { AdCampaign } from '../models/ads.js';
 import { Wallet, WalletTransaction } from '../models/wallet.js';
 import { AdminUser } from '../models/admin.js';
+import { RedeemCode } from '../models/redeem.js';
 import { UiState } from '../models/uiState.js';
 import { getBusinessSettings, setBusinessSetting } from '../services/businessSettings.js';
 import { adminKeyboard, simpleBackKeyboard } from '../bot/keyboards.js';
@@ -236,6 +237,28 @@ export function registerAdminV2Handlers(bot, config) {
       { upsert: true }
     );
     await ctx.reply('✅ Admin added: '+telegramId+' ('+role+')');
+  });
+
+  bot.command('redeemcreate', async ctx => {
+    const record = await adminOnly(ctx, 'redeem');
+    if (!record) return;
+    const [, code, amountText, limitText='1'] = ctx.message.text.trim().split(/\\s+/);
+    const amount = Number(amountText);
+    const usageLimit = Number(limitText);
+    if (!code || !Number.isFinite(amount) || amount <= 0 || !Number.isInteger(usageLimit) || usageLimit < 1) {
+      return ctx.reply('Usage: /redeemcreate CODE AMOUNT [USAGE_LIMIT]');
+    }
+    await RedeemCode.create({ code: code.toUpperCase(), amount, usageLimit, usageCount: 0, active: true });
+    await ctx.reply('✅ Redeem code created.');
+  });
+
+  bot.command('redeemdisable', async ctx => {
+    const record = await adminOnly(ctx, 'redeem');
+    if (!record) return;
+    const code = ctx.message.text.replace(/^\\/redeemdisable\\s*/i,'').trim().toUpperCase();
+    if (!code) return ctx.reply('Usage: /redeemdisable CODE');
+    await RedeemCode.updateOne({ code }, { $set: { active: false } });
+    await ctx.reply('✅ Redeem code disabled.');
   });
 
   bot.command('unadmin', async ctx => {
