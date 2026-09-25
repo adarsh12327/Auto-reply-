@@ -293,12 +293,6 @@ export function registerDashboardHandlers(bot, config) {
     );
   });
 
-  bot.action('feature_redeem', async ctx => {
-    await ctx.answerCbQuery();
-    await setUiState(ctx.from.id, stateKey, { action: 'redeem_code' });
-    await edit(ctx, '🎁 <b>REDEEM CODE</b>\n\nSend your redeem code.', messageInputKeyboard());
-  });
-
   bot.action('feature_preview', async ctx => {
     await ctx.answerCbQuery();
     const templates = await MessageTemplate.find({ ownerId: ctx.from.id }).sort({ createdAt: -1 }).lean();
