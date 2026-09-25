@@ -51,17 +51,19 @@ export async function createCampaign({ ownerId, accountIds, type, message, targe
 }
 
 export async function processCampaignBatch(campaignId, encryptionKey, batchSize = 8) {
-  const campaign = await BusinessCampaign.findOne({
-    _id: campaignId,
-    status: { $in: ['draft', 'running', 'paused'] }
-  });
-  if (!campaign) return { done: true };
+  const now = new Date();
+  const campaign = await BusinessCampaign.findOneAndUpdate(
+    {
+      _id: campaignId,
+      status: { $in: ['draft', 'scheduled', 'running'] },
+      $or: [{ workerLockUntil: null }, { workerLockUntil: { $lte: now } }]
+    },
+    { $set: { status: 'running', workerLockUntil: new Date(now.getTime() + 4 * 60 * 1000), startedAt: now } },
+    { new: true }
+  );
+  if (!campaign) return { done: false, locked: true };
 
-  if (campaign.status === 'paused') return { done: false, paused: true };
-
-  campaign.status = 'running';
-  campaign.startedAt = campaign.startedAt || new Date();
-  await campaign.save();
+  try {
 
   const pending = await CampaignRecipient.find({
     campaignId: campaign._id,
@@ -69,8 +71,19 @@ export async function processCampaignBatch(campaignId, encryptionKey, batchSize 
   }).sort({ createdAt: 1 }).limit(batchSize);
 
   if (!pending.length) {
+    const now = new Date();
+    if (campaign.repeatEveryMs > 0 && (!campaign.endAt || campaign.endAt > now) && campaign.status !== 'cancelled') {
+      await CampaignRecipient.updateMany({ campaignId: campaign._id }, { $set: { status: 'pending', attempts: 0, lastError: '', sentAt: null } });
+      campaign.stats = { total: await CampaignRecipient.countDocuments({ campaignId: campaign._id }), sent: 0, failed: 0, skipped: 0 };
+      campaign.status = 'scheduled';
+      campaign.scheduledAt = new Date(now.getTime() + campaign.repeatEveryMs);
+      campaign.workerLockUntil = null;
+      await campaign.save();
+      return { done: false, campaign, rescheduled: true };
+    }
     campaign.status = 'completed';
-    campaign.completedAt = new Date();
+    campaign.completedAt = now;
+    campaign.workerLockUntil = null;
     await campaign.save();
     return { done: true, campaign };
   }
@@ -151,7 +164,12 @@ export async function processCampaignBatch(campaignId, encryptionKey, batchSize 
     return { done: true, campaign: fresh };
   }
 
+  fresh.workerLockUntil = null;
+  await fresh.save();
   return { done: false, campaign: fresh, remaining, rateLimited: stoppedForRateLimit };
+  } finally {
+    await BusinessCampaign.updateOne({ _id: campaignId }, { $set: { workerLockUntil: null } }).catch(() => {});
+  }
 }
 
 export async function pauseBusinessCampaign(ownerId, id) {
