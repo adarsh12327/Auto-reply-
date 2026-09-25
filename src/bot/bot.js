@@ -4,6 +4,8 @@ import { mainKeyboard } from './keyboards.js';
 import { startHandler } from '../handlers/start.js';
 import { registerAccountHandlers } from '../handlers/account.js';
 import { registerDashboardHandlers } from '../handlers/dashboard.js';
+import { registerCampaignV2Handlers } from '../handlers/campaignsV2.js';
+import { registerAutoReplyV2Handlers } from '../handlers/autoReplyV2.js';
 import { registerAdminV2Handlers } from '../handlers/adminV2.js';
 
 export function createBot(config) {
@@ -37,6 +39,8 @@ export function createBot(config) {
   });
 
   registerDashboardHandlers(bot, config);
+  registerCampaignV2Handlers(bot, config);
+  registerAutoReplyV2Handlers(bot, config);
   registerAccountHandlers(bot, config);
   registerAdminV2Handlers(bot, config);
 
