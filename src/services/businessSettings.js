@@ -23,7 +23,10 @@ export const DEFAULTS = Object.freeze({
   supportUrl: '',
   createBotOwner: '',
   createBotMessage: 'Hello, I want to create my own bot.',
-  maintenanceMode: false
+  maintenanceMode: false,
+  joinRequestEnabled: false,
+  joinRequestChatId: '',
+  joinRequestMessage: 'Thanks for your join request. We will review it shortly.'
 });
 
 export async function getBusinessSetting(key, fallback = DEFAULTS[key]) {
