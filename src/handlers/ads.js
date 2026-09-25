@@ -149,17 +149,6 @@ export function registerAdsHandlers(bot, config) {
     await edit(ctx, '🔗 <b>AD LINK</b>\n\nSend a URL for the ad, or send <code>-</code> if there is no link.', Markup.inlineKeyboard([[Markup.button.callback('❌ Cancel', 'feature_ads')]]));
   });
 
-  bot.action(/^admin_ad_approve:(.+)$/, async ctx => {
-    if (!ctx.state?.isAdmin) return;
-    const ad = await AdCampaign.findById(ctx.match[1]);
-    if (!ad) return ctx.reply('❌ Ad not found.');
-    ad.paymentStatus = 'approved';
-    ad.status = 'approved';
-    ad.approvedAt = new Date();
-    await ad.save();
-    await ctx.reply('✅ Ad approved: ' + ad._id);
-  });
-
   bot.on('photo', async (ctx, next) => {
     const state = await UiState.findOne({ ownerId: ctx.from.id, key, expiresAt: { $gt: new Date() } });
     if (!state || state.data?.step !== 'payment') return next();
