@@ -12,6 +12,8 @@ import { createCampaign, processCampaignBatch, pauseBusinessCampaign, resumeBusi
 import { accountPickerKeyboard, simpleBackKeyboard, campaignControlKeyboard, messageInputKeyboard } from '../bot/keyboards.js';
 
 function safeTelegramText(value) { const text = String(value ?? ''); return text.split('').filter(ch => { const code = ch.charCodeAt(0); return code < 55296 || code > 57343; }).join(''); }
+
+function picker(accounts, selected, done) {
   return accountPickerKeyboard(accounts, selected, done);
 }
 
