@@ -1,0 +1,240 @@
+import { User, Account } from '../db.js';
+import { BusinessCampaign } from '../models/campaigns.js';
+import { AdCampaign } from '../models/ads.js';
+import { Wallet, WalletTransaction } from '../models/wallet.js';
+import { AdminUser } from '../models/admin.js';
+import { UiState } from '../models/uiState.js';
+import { getBusinessSettings, setBusinessSetting } from '../services/businessSettings.js';
+import { adminKeyboard, simpleBackKeyboard } from '../bot/keyboards.js';
+
+const stateKey = 'admin_flow';
+
+async function adminRecord(userId) {
+  const envOwner = (process.env.ADMIN_IDS || '').split(',').map(x => Number(x)).filter(Boolean);
+  if (envOwner.includes(Number(userId))) return { role: 'owner', permissions: ['*'] };
+  return AdminUser.findOne({ telegramId: userId, active: true }).lean();
+}
+
+function can(role, permission) {
+  if (!role) return false;
+  if (role.role === 'owner' || role.role === 'super_admin') return true;
+  return role.permissions?.includes('*') || role.permissions?.includes(permission);
+}
+
+async function adminOnly(ctx, permission = 'dashboard') {
+  const record = await adminRecord(ctx.from.id);
+  if (!record || !can(record, permission)) {
+    await ctx.reply('⛔ Admin access required.');
+    return null;
+  }
+  return record;
+}
+
+async function render(ctx, text, keyboard = adminKeyboard()) {
+  try {
+    await ctx.editMessageText(text, keyboard);
+  } catch {
+    await ctx.reply(text, keyboard).catch(() => {});
+  }
+}
+
+export function registerAdminV2Handlers(bot, config) {
+  bot.command('admin', async ctx => {
+    if (!(await adminOnly(ctx))) return;
+    const [users, accounts, campaigns, ads, walletTx] = await Promise.all([
+      User.countDocuments(),
+      Account.countDocuments({ status: 'connected' }),
+      BusinessCampaign.countDocuments(),
+      AdCampaign.countDocuments(),
+      WalletTransaction.countDocuments()
+    ]);
+    await ctx.reply(
+      '👑 <b>ADMIN COMMAND CENTER</b>\n\n' +
+      'Users: ' + users + '\n' +
+      'Connected accounts: ' + accounts + '\n' +
+      'Campaigns: ' + campaigns + '\n' +
+      'Ads: ' + ads + '\n' +
+      'Transactions: ' + walletTx,
+      { parse_mode: 'HTML', ...adminKeyboard() }
+    );
+  });
+
+  bot.action('admin_dashboard', async ctx => {
+    await ctx.answerCbQuery();
+    if (!(await adminOnly(ctx))) return;
+    const [users, accounts, campaigns, ads] = await Promise.all([
+      User.countDocuments(),
+      Account.countDocuments({ status: 'connected' }),
+      BusinessCampaign.countDocuments(),
+      AdCampaign.countDocuments()
+    ]);
+    await render(ctx, '📊 <b>ADMIN DASHBOARD</b>\n\n👥 Users: ' + users + '\n👤 Connected accounts: ' + accounts + '\n📨 Campaigns: ' + campaigns + '\n📢 Ads: ' + ads);
+  });
+
+  bot.action('admin_users', async ctx => {
+    await ctx.answerCbQuery();
+    if (!(await adminOnly(ctx, 'users'))) return;
+    const users = await User.find({}).sort({ lastSeenAt: -1 }).limit(15).lean();
+    const body = users.length ? users.map((u,i) => (i+1)+'. '+u.telegramId+' '+(u.username ? '@'+u.username : '')+(u.blocked ? ' 🚫' : '')).join('\n') : 'No users.';
+    await render(ctx, '👥 <b>USERS</b>\n\n' + body);
+  });
+
+  bot.action('admin_accounts', async ctx => {
+    await ctx.answerCbQuery();
+    if (!(await adminOnly(ctx, 'accounts'))) return;
+    const accounts = await Account.find({}).sort({ updatedAt: -1 }).limit(15).lean();
+    const body = accounts.length ? accounts.map((a,i) => (i+1)+'. owner '+a.ownerId+' · '+a.status+' · '+(a.phoneMasked||'Account')).join('\n') : 'No accounts.';
+    await render(ctx, '👤 <b>ACCOUNTS</b>\n\n' + body);
+  });
+
+  bot.action('admin_campaigns', async ctx => {
+    await ctx.answerCbQuery();
+    if (!(await adminOnly(ctx, 'campaigns'))) return;
+    const rows = await BusinessCampaign.find({}).sort({ createdAt: -1 }).limit(15).lean();
+    const body = rows.length ? rows.map((c,i) => (i+1)+'. '+c.type+' · '+c.status+' · '+(c.stats?.sent||0)+' sent / '+(c.stats?.failed||0)+' failed').join('\n') : 'No campaigns.';
+    await render(ctx, '📨 <b>CAMPAIGNS</b>\n\n' + body);
+  });
+
+  bot.action('admin_ads', async ctx => {
+    await ctx.answerCbQuery();
+    if (!(await adminOnly(ctx, 'ads'))) return;
+    const rows = await AdCampaign.find({}).sort({ createdAt: -1 }).limit(15).lean();
+    const body = rows.length ? rows.map((a,i) => (i+1)+'. '+a.title+' · '+a.status+' · ₹'+a.price).join('\n') : 'No ads.';
+    await render(ctx, '📢 <b>ADS</b>\n\n' + body);
+  });
+
+  bot.action('admin_payments', async ctx => {
+    await ctx.answerCbQuery();
+    if (!(await adminOnly(ctx, 'payments'))) return;
+    const rows = await WalletTransaction.find({ type: 'deposit' }).sort({ createdAt: -1 }).limit(15).lean();
+    const body = rows.length ? rows.map((x,i) => (i+1)+'. '+x.ownerId+' · ₹'+x.amount+' · '+x.status).join('\n') : 'No deposit transactions.';
+    await render(ctx, '💳 <b>PAYMENTS</b>\n\n' + body);
+  });
+
+  bot.action('admin_wallet', async ctx => {
+    await ctx.answerCbQuery();
+    if (!(await adminOnly(ctx, 'wallet'))) return;
+    const rows = await WalletTransaction.find({}).sort({ createdAt: -1 }).limit(15).lean();
+    const body = rows.length ? rows.map((x,i) => (i+1)+'. '+x.ownerId+' · '+x.type+' · '+x.amount+' · '+x.status).join('\n') : 'No transactions.';
+    await render(ctx, '💰 <b>WALLET TRANSACTIONS</b>\n\n' + body);
+  });
+
+  bot.action('admin_settings', async ctx => {
+    await ctx.answerCbQuery();
+    if (!(await adminOnly(ctx, 'settings'))) return;
+    const s = await getBusinessSettings();
+    await render(ctx,
+      '⚙️ <b>SETTINGS</b>\n\n' +
+      'Free DM: ' + s.freeDmLimit + '\n' +
+      'Premium DM: ' + s.premiumDmLimit + '\n' +
+      'Max accounts free: ' + s.maxAccountsFree + '\n' +
+      'Max accounts premium: ' + s.maxAccountsPremium + '\n' +
+      'Campaign delay: ' + Math.round(s.defaultCampaignDelayMs/1000) + 's\n' +
+      'Auto Reply cooldown: ' + Math.round(s.autoReplyCooldownMs/60000) + ' min\n' +
+      'Ad earning: ' + s.adEarningPercent + '%\n' +
+      'Referral reward: ₹' + s.referralReward,
+      adminKeyboard()
+    );
+  });
+
+  bot.action('admin_maintenance', async ctx => {
+    await ctx.answerCbQuery();
+    const record = await adminOnly(ctx, 'settings');
+    if (!record) return;
+    const s = await getBusinessSettings();
+    await setBusinessSetting('maintenanceMode', !s.maintenanceMode, ctx.from.id);
+    await render(ctx, (!s.maintenanceMode ? '🛠️ Maintenance Mode ENABLED' : '✅ Maintenance Mode DISABLED') + '\n\nAdmins retain access.');
+  });
+
+  bot.action('admin_ban', async ctx => {
+    await ctx.answerCbQuery();
+    if (!(await adminOnly(ctx, 'users'))) return;
+    await UiState.findOneAndUpdate(
+      { ownerId: ctx.from.id, key: stateKey },
+      { $set: { data: { action: 'ban_user' }, expiresAt: new Date(Date.now()+10*60*1000) } },
+      { upsert: true }
+    );
+    await render(ctx, '🚫 <b>BAN USER</b>\n\nSend the Telegram user ID to ban.\n\nUse /cancel to stop.', simpleBackKeyboard('admin_dashboard'));
+  });
+
+  bot.action('admin_logs', async ctx => {
+    await ctx.answerCbQuery();
+    if (!(await adminOnly(ctx, 'logs'))) return;
+    await render(ctx, '📝 <b>SYSTEM LOGS</b>\n\nDetailed runtime logs are stored in Vercel logs. Business audit records are stored in MongoDB.', adminKeyboard());
+  });
+
+  bot.action('admin_support', async ctx => {
+    await ctx.answerCbQuery();
+    if (!(await adminOnly(ctx, 'support'))) return;
+    await render(ctx, '🆘 <b>SUPPORT</b>\n\nSupport ticket routing is reserved for the support-service phase.', adminKeyboard());
+  });
+
+  bot.action('admin_howto', async ctx => {
+    await ctx.answerCbQuery();
+    if (!(await adminOnly(ctx, 'settings'))) return;
+    await render(ctx, '📖 <b>HOW TO USE</b>\n\nConfigure the guide URL through the settings service in the next admin configuration phase.', adminKeyboard());
+  });
+
+  bot.action('admin_create_bot', async ctx => {
+    await ctx.answerCbQuery();
+    if (!(await adminOnly(ctx, 'settings'))) return;
+    await render(ctx, '🤖 <b>CREATE YOUR OWN BOT</b>\n\nThe owner destination and predefined message are admin-configurable through the business settings layer.', adminKeyboard());
+  });
+
+  bot.action('admin_redeem', async ctx => {
+    await ctx.answerCbQuery();
+    if (!(await adminOnly(ctx, 'redeem'))) return;
+    await render(ctx, '🎁 <b>REDEEM MANAGEMENT</b>\n\nRedeem-code CRUD will be connected in the wallet phase.', adminKeyboard());
+  });
+
+  bot.action('admin_referral', async ctx => {
+    await ctx.answerCbQuery();
+    if (!(await adminOnly(ctx, 'referral'))) return;
+    const s = await getBusinessSettings();
+    await render(ctx, '👥 <b>REFERRAL SETTINGS</b>\n\nReward: ₹'+s.referralReward+'\nCondition: '+s.referralCondition, adminKeyboard());
+  });
+
+  bot.command('adminadd', async ctx => {
+    const record = await adminRecord(ctx.from.id);
+    if (!record || !['owner','super_admin'].includes(record.role)) return ctx.reply('⛔ Owner/Super Admin only.');
+    const [, idText, role='admin'] = ctx.message.text.trim().split(/\s+/);
+    const telegramId = Number(idText);
+    if (!Number.isSafeInteger(telegramId) || !['super_admin','admin','support'].includes(role)) {
+      return ctx.reply('Usage: /adminadd TELEGRAM_ID super_admin|admin|support');
+    }
+    await AdminUser.findOneAndUpdate(
+      { telegramId },
+      { $set: { role, active: true, addedBy: ctx.from.id } },
+      { upsert: true }
+    );
+    await ctx.reply('✅ Admin added: '+telegramId+' ('+role+')');
+  });
+
+  bot.command('unadmin', async ctx => {
+    const record = await adminRecord(ctx.from.id);
+    if (!record || !['owner','super_admin'].includes(record.role)) return ctx.reply('⛔ Owner/Super Admin only.');
+    const id = Number(ctx.message.text.replace(/^\/unadmin\s*/i,'').trim());
+    if (!Number.isSafeInteger(id)) return ctx.reply('Usage: /unadmin TELEGRAM_ID');
+    await AdminUser.updateOne({ telegramId: id }, { $set: { active: false } });
+    await ctx.reply('✅ Admin disabled.');
+  });
+
+  bot.on('text', async (ctx, next) => {
+    const state = await UiState.findOne({ ownerId: ctx.from.id, key: stateKey, expiresAt: { $gt: new Date() } });
+    if (!state) return next();
+    if (ctx.message.text.trim() === '/cancel') {
+      await UiState.deleteOne({ _id: state._id });
+      await ctx.reply('❌ Cancelled.');
+      return;
+    }
+    if (state.data?.action === 'ban_user') {
+      const id = Number(ctx.message.text.trim());
+      if (!Number.isSafeInteger(id)) return ctx.reply('❌ Invalid Telegram user ID.');
+      await User.updateOne({ telegramId: id }, { $set: { blocked: true } });
+      await UiState.deleteOne({ _id: state._id });
+      await ctx.reply('🚫 User banned: '+id);
+      return;
+    }
+    return next();
+  });
+}
