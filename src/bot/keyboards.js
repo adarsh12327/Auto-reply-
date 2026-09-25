@@ -1,6 +1,7 @@
 import { Markup } from 'telegraf';
 
-const cb = (text, data) => Markup.button.callback(text, data);
+const safeTelegramText = value => String(value ?? '').replace(/[\uD800-\uDFFF]/g, '�').slice(0, 64);
+const cb = (text, data) => Markup.button.callback(safeTelegramText(text), safeTelegramText(data));
 
 export const mainKeyboard = () => Markup.inlineKeyboard([
   [cb('📨 Start Mass DM', 'feature_dm'), cb('👥 Group Message', 'feature_group')],
