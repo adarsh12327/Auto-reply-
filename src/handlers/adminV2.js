@@ -255,7 +255,7 @@ export function registerAdminV2Handlers(bot, config) {
   bot.command('redeemdisable', async ctx => {
     const record = await adminOnly(ctx, 'redeem');
     if (!record) return;
-    const code = ctx.message.text.replace(/^\\/redeemdisable\\s*/i,'').trim().toUpperCase();
+    const code = ctx.message.text.replace(/^\/redeemdisable\s*/i,'').trim().toUpperCase();
     if (!code) return ctx.reply('Usage: /redeemdisable CODE');
     await RedeemCode.updateOne({ code }, { $set: { active: false } });
     await ctx.reply('✅ Redeem code disabled.');
