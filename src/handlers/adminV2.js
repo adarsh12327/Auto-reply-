@@ -188,10 +188,22 @@ export function registerAdminV2Handlers(bot, config) {
       'Premium DM: ' + s.premiumDmLimit + '\n' +
       'Max accounts free: ' + s.maxAccountsFree + '\n' +
       'Max accounts premium: ' + s.maxAccountsPremium + '\n' +
-      'Campaign delay: ' + Math.round(s.defaultCampaignDelayMs/1000) + 's\n' +
-      'Auto Reply cooldown: ' + Math.round(s.autoReplyCooldownMs/60000) + ' min\n' +
-      'Ad earning: ' + s.adEarningPercent + '%\n' +
-      'Referral reward: ₹' + s.referralReward,
+      'Campaign delay: ' + Math.round(s.defaultCampaignDelayMs/1000) + 's\\n' +
+      'Auto Reply cooldown: ' + Math.round(s.autoReplyCooldownMs/60000) + ' min\\n' +
+      'Ad earning: ' + s.adEarningPercent + '%\\n' +
+      'Referral reward: ₹' + s.referralReward + '\\n\\n' +
+      '<b>Configuration commands</b>\\n' +
+      '<code>/setsetting freeDmLimit 20</code>\\n' +
+      '<code>/setsetting premiumDmLimit 200</code>\\n' +
+      '<code>/setsetting defaultCampaignDelayMs 20000</code>\\n' +
+      '<code>/setsetting adEarningPercent 20</code>\\n' +
+      '<code>/setsetting referralReward 10</code>\\n' +
+      '<code>/setsetting referralCondition start|account_added|campaign|payment</code>\\n' +
+      '<code>/setsetting upiId your@upi</code>\\n' +
+      '<code>/setsetting howToUrl https://...</code>\\n' +
+      '<code>/setsetting supportUrl https://t.me/...</code>\\n' +
+      '<code>/setsetting createBotOwner username</code>\\n' +
+      '<code>/setsetting createBotMessage your text</code>',
       adminKeyboard()
     );
   });
@@ -251,6 +263,42 @@ export function registerAdminV2Handlers(bot, config) {
     if (!(await adminOnly(ctx, 'referral'))) return;
     const s = await getBusinessSettings();
     await render(ctx, '👥 <b>REFERRAL SETTINGS</b>\n\nReward: ₹'+s.referralReward+'\nCondition: '+s.referralCondition, adminKeyboard());
+  });
+
+  bot.command('setsetting', async ctx => {
+    const record = await adminOnly(ctx, 'settings');
+    if (!record) return;
+    const parts = ctx.message.text.trim().split(/\\s+/);
+    const key = parts[1];
+    const raw = parts.slice(2).join(' ').trim();
+    const allowed = new Set([
+      'freeDmLimit','premiumDmLimit','maxAccountsFree','maxAccountsPremium','maxGroupsPerCampaign',
+      'defaultCampaignDelayMs','autoReplyCooldownMs','maxAutoReplyCooldownMs','adEarningPercent',
+      'referralReward','referralCondition','requiredJoinChatId','requiredJoinUrl','howToUrl','supportUrl',
+      'createBotOwner','createBotMessage','upiId','paymentInstructions','maintenanceMode',
+      'joinRequestEnabled','joinRequestChatId','joinRequestMessage'
+    ]);
+    if (!allowed.has(key) || !raw) return ctx.reply('Usage: /setsetting KEY VALUE');
+    let value = raw;
+    if (/^(true|false)$/i.test(raw)) value = raw.toLowerCase() === 'true';
+    else if (/^-?\\d+(\\.\\d+)?$/.test(raw)) value = Number(raw);
+    await setBusinessSetting(key, value, ctx.from.id);
+    await ctx.reply('✅ Setting updated: '+key);
+  });
+
+  bot.command('setadprice', async ctx => {
+    const record = await adminOnly(ctx, 'settings');
+    if (!record) return;
+    const [, targetText, priceText] = ctx.message.text.trim().split(/\\s+/);
+    const target = Number(targetText), price = Number(priceText);
+    if (!Number.isInteger(target) || target < 1 || !Number.isFinite(price) || price < 0) return ctx.reply('Usage: /setadprice TARGET PRICE');
+    const s = await getBusinessSettings();
+    const tiers = Array.isArray(s.adPricing) ? [...s.adPricing] : [];
+    const i = tiers.findIndex(x => Number(x.target) === target);
+    if (i >= 0) tiers[i] = { target, price }; else tiers.push({ target, price });
+    tiers.sort((a,b) => Number(a.target)-Number(b.target));
+    await setBusinessSetting('adPricing', tiers, ctx.from.id);
+    await ctx.reply('✅ Ad pricing updated.');
   });
 
   bot.command('adminadd', async ctx => {
