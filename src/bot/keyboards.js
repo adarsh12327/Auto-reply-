@@ -20,17 +20,17 @@ export const joinRequiredKeyboard = url => Markup.inlineKeyboard([
   [cb('✅ I Joined — Verify', 'verify_join')]
 ]);
 
-export const accountPickerKeyboard = (accounts, selected = [], doneAction = 'account_picker_done') => {
+export const accountPickerKeyboard = (accounts, selected = [], doneAction = 'account_picker_done', prefix = 'account_pick') => {
   const set = new Set(selected.map(String));
   const rows = accounts.map(a => {
     const id = String(a._id);
     const mark = set.has(id) ? '☑️' : '☐';
     const name = a.phoneMasked || a.username || 'Telegram Account';
-    return [cb(mark + ' ' + name, 'account_pick:' + id)];
+    return [cb(mark + ' ' + name, prefix + ':' + id)];
   });
   rows.push([
-    cb('☑️ Select All', 'account_pick_all'),
-    cb('🧹 Clear', 'account_pick_clear')
+    cb('☑️ Select All', prefix + '_all'),
+    cb('🧹 Clear', prefix + '_clear')
   ]);
   rows.push([cb('▶️ Continue', doneAction)]);
   rows.push([cb('⬅️ Back', 'main_menu')]);
