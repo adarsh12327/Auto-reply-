@@ -238,12 +238,37 @@ export function registerDashboardHandlers(bot, config) {
 
   bot.action('feature_premium', async ctx => {
     await ctx.answerCbQuery();
-    await edit(ctx, '⭐ <b>VIP PREMIUM</b>\n\n🚧 Coming Soon\n\nPremium limits are already supported by the architecture and can be configured by Admin.', simpleBackKeyboard());
+    const settings = await getBusinessSettings();
+    await edit(ctx,
+      '⭐ <b>VIP PREMIUM</b>\n\n' +
+      'Your current plan limits are shown below.\n\n' +
+      '📨 DM limit: ' + Number(settings.freeDmLimit || 20) + '\n' +
+      '👥 Group campaign limit: ' + Number(settings.maxGroupsPerCampaign || 100) + '\n' +
+      '🤖 Auto-reply cooldown max: ' + Math.round(Number(settings.maxAutoReplyCooldownMs || 86400000) / 3600000) + ' hour(s)\n\n' +
+      'Premium activation is controlled by the administrator.',
+      simpleBackKeyboard()
+    );
   });
 
   bot.action('feature_pending', async ctx => {
     await ctx.answerCbQuery();
-    await edit(ctx, '⏳ <b>ACCEPT PENDING</b>\n\n🚧 Coming Soon', simpleBackKeyboard());
+    const rows = await Account.find({ ownerId: ctx.from.id, status: 'pending' }).sort({ createdAt: -1 }).limit(20).lean();
+    if (!rows.length) {
+      return edit(ctx, '⏳ <b>ACCEPT PENDING</b>\n\nNo pending Telegram account logins found.\n\nUse Add Account to start a new login.', Markup.inlineKeyboard([
+        [Markup.button.callback('➕ Add Account', 'add_account')],
+        [Markup.button.callback('⬅️ Dashboard', 'main_menu')]
+      ]));
+    }
+    await edit(ctx,
+      '⏳ <b>PENDING ACCOUNT LOGINS</b>\n\n' +
+      rows.map((a, i) => (i + 1) + '. ' + (a.phoneMasked || 'Telegram Account') + ' · ' + (a.loginStep || 'pending')).join('\n') +
+      '\n\nOpen My Account to continue or inspect a pending login.',
+      Markup.inlineKeyboard([
+        [Markup.button.callback('👤 My Account', 'feature_account')],
+        [Markup.button.callback('➕ Add Account', 'add_account')],
+        [Markup.button.callback('⬅️ Dashboard', 'main_menu')]
+      ])
+    );
   });
 
   bot.action('feature_howto', async ctx => {
