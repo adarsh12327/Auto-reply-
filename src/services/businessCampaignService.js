@@ -13,7 +13,7 @@ function isFloodWait(error) {
   return m ? Number(m[1]) : 0;
 }
 
-export async function createCampaign({ ownerId, accountIds, type, message, targetIds, delayMs, templateId = null }) {
+export async function createCampaign({ ownerId, accountIds, type, message, targetIds, targetPairs = null, delayMs, templateId = null }) {
   if (!Array.isArray(accountIds) || !accountIds.length) throw new Error('Select at least one account.');
   if (!message?.trim()) throw new Error('Campaign message is required.');
   if (!Array.isArray(targetIds) || !targetIds.length) throw new Error('No eligible recipients or groups selected.');
@@ -21,28 +21,27 @@ export async function createCampaign({ ownerId, accountIds, type, message, targe
   const accounts = await Account.find({ ownerId, _id: { $in: accountIds }, status: 'connected' }).select('_id').lean();
   if (!accounts.length) throw new Error('No connected selected accounts.');
 
+  const pairs = Array.isArray(targetPairs) && targetPairs.length
+    ? targetPairs.map(pair => ({ accountId: String(pair.accountId), targetId: String(pair.targetId) }))
+    : accounts.flatMap(account => targetIds.map(targetId => ({ accountId: String(account._id), targetId: String(targetId) })));
+
   const campaign = await BusinessCampaign.create({
     ownerId,
     accountIds: accounts.map(a => a._id),
     type,
     message: message.slice(0, 4096),
-    targetIds: targetIds.map(String),
+    targetIds: [...new Set(pairs.map(x => x.targetId))],
     delayMs: Math.max(1000, Number(delayMs) || 20000),
     messageTemplateId: templateId,
-    stats: { total: targetIds.length * accounts.length, sent: 0, failed: 0, skipped: 0 }
+    stats: { total: pairs.length, sent: 0, failed: 0, skipped: 0 }
   });
 
-  const recipients = [];
-  for (const account of accounts) {
-    for (const targetId of targetIds) {
-      recipients.push({
-        campaignId: campaign._id,
-        ownerId,
-        accountId: account._id,
-        targetId: String(targetId)
-      });
-    }
-  }
+  const recipients = pairs.map(pair => ({
+    campaignId: campaign._id,
+    ownerId,
+    accountId: pair.accountId,
+    targetId: pair.targetId
+  }));
   await CampaignRecipient.insertMany(recipients, { ordered: false });
   return campaign;
 }
