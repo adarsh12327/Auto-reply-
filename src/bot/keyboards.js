@@ -1,138 +1,129 @@
 import { Markup } from 'telegraf';
 
+const cb = (text, data) => Markup.button.callback(text, data);
+
 export const mainKeyboard = () => Markup.inlineKeyboard([
-  [Markup.button.callback('📊 Dashboard', 'stats')],
-  [Markup.button.callback('👤 Accounts', 'accounts'), Markup.button.callback('🤖 Auto Reply', 'auto_reply')],
-  [Markup.button.callback('📩 DM Campaigns', 'campaign_dm'), Markup.button.callback('👥 Group Promo', 'campaign_group')],
-  [Markup.button.callback('🔎 Contact Scanner', 'scan_menu')],
-  [Markup.button.callback('📢 Channel Promo', 'campaign_channel')],
-  [Markup.button.callback('👥 Refer & Earn', 'referrals'), Markup.button.callback('⭐ Premium', 'premium')],
-  [Markup.button.callback('🎁 Redeem Code', 'redeem'), Markup.button.callback('🆘 Support', 'support')]
+  [cb('📨 Start Mass DM', 'feature_dm'), cb('👥 Group Message', 'feature_group')],
+  [cb('🤖 Set Auto Reply', 'feature_autoreply'), cb('📢 Set Ads', 'feature_ads')],
+  [cb('📋 Ads Logs', 'feature_ads_logs'), cb('💬 Set Message', 'feature_messages')],
+  [cb('👁️ Preview Message', 'feature_preview'), cb('📊 My Stats', 'feature_stats')],
+  [cb('👤 My Account', 'feature_account'), cb('⭐ Go VIP Premium', 'feature_premium')],
+  [cb('🎁 Redeem Code', 'feature_redeem'), cb('➕ Add Account', 'add_account')],
+  [cb('➖ Remove Account', 'feature_remove_account'), cb('⏳ Accept Pending', 'feature_pending')],
+  [cb('📩 Join Request DM', 'feature_join_request'), cb('👥 Refer & Earn', 'feature_referral')],
+  [cb('📖 How to Use', 'feature_howto'), cb('🆘 Support', 'feature_support')],
+  [cb('🤖 Create Your Own Bot', 'feature_create_bot')]
 ]);
 
-export const qrLoginKeyboard = accountId => Markup.inlineKeyboard([
-  [Markup.button.callback('🔄 Check QR Login', 'account_qr_check:' + accountId)],
-  [Markup.button.callback('❌ Cancel Login', 'account_qr_cancel:' + accountId)]
+export const joinRequiredKeyboard = url => Markup.inlineKeyboard([
+  ...(url ? [[Markup.button.url('📢 Join Required Channel', url)]] : []),
+  [cb('✅ I Joined — Verify', 'verify_join')]
 ]);
 
-export const backKeyboard = (action = 'main_menu', label = '⬅️ Back') => Markup.inlineKeyboard([
-  [Markup.button.callback(label, action)]
-]);
-
-export const autoReplyKeyboard = enabled => Markup.inlineKeyboard([
-  [Markup.button.callback('✏️ Edit Reply', 'auto_reply_set'), Markup.button.callback(enabled ? '⏸️ Disable' : '▶️ Enable', enabled ? 'auto_reply_off' : 'auto_reply_on')],
-  [Markup.button.callback('🗑️ Clear Reply', 'auto_reply_clear')],
-  [Markup.button.callback('⬅️ Dashboard', 'main_menu')]
-]);
-
-export const dmMenuKeyboard = () => Markup.inlineKeyboard([
-  [Markup.button.callback('✉️ Create Campaign', 'dm_new')],
-  [Markup.button.callback('👥 Recipients', 'dm_audience')],
-  [Markup.button.callback('🔎 Select from Scanner', 'dm_scanned')],
-  [Markup.button.callback('⬅️ Dashboard', 'main_menu')]
-]);
-
-export const dmAudienceKeyboard = recipients => {
-  const rows = [
-    [Markup.button.callback('🔎 Select Scanned Contacts', 'dm_scanned')],
-    [Markup.button.callback('🔄 Refresh Authorized', 'dm_audience')]
-  ];
-  if (Array.isArray(recipients)) {
-    for (const recipient of recipients.slice(0, 20)) {
-      const id = String(recipient.recipientId);
-      rows.push([Markup.button.callback('🗑️ Remove ' + id, 'dm_recipient_remove:' + id)]);
-    }
-  }
-  rows.push([Markup.button.callback('⬅️ DM Campaigns', 'campaign_dm')]);
-  return Markup.inlineKeyboard(rows);
-};
-
-export const scannedSelectionKeyboard = (campaignId, peers, selectedIds = [], page = 0) => {
-  const pageSize = 8;
-  const totalPages = Math.max(1, Math.ceil(peers.length / pageSize));
-  const safePage = Math.min(Math.max(0, page), totalPages - 1);
-  const selected = new Set(selectedIds.map(String));
-  const pagePeers = peers.slice(safePage * pageSize, safePage * pageSize + pageSize);
-  const rows = pagePeers.map(peer => {
-    const id = String(peer.peerId);
-    const mark = selected.has(id) ? '☑️' : '☐';
-    const label = (peer.name || peer.username || 'Customer').slice(0, 24);
-    return [Markup.button.callback(mark + ' ' + label, 'dm_pick:' + campaignId + ':' + id)];
+export const accountPickerKeyboard = (accounts, selected = [], doneAction = 'account_picker_done') => {
+  const set = new Set(selected.map(String));
+  const rows = accounts.map(a => {
+    const id = String(a._id);
+    const mark = set.has(id) ? '☑️' : '☐';
+    const name = a.phoneMasked || a.username || 'Telegram Account';
+    return [cb(mark + ' ' + name, 'account_pick:' + id)];
   });
   rows.push([
-    Markup.button.callback('☑️ Select All', 'dm_pick_all:' + campaignId),
-    Markup.button.callback('🧹 Clear', 'dm_pick_clear:' + campaignId)
+    cb('☑️ Select All', 'account_pick_all'),
+    cb('🧹 Clear', 'account_pick_clear')
   ]);
-  const nav = [];
-  if (safePage > 0) nav.push(Markup.button.callback('◀️', 'dm_pick_page:' + campaignId + ':' + (safePage - 1)));
-  nav.push(Markup.button.callback((safePage + 1) + '/' + totalPages, 'dm_pick_page:' + campaignId + ':' + safePage));
-  if (safePage < totalPages - 1) nav.push(Markup.button.callback('▶️', 'dm_pick_page:' + campaignId + ':' + (safePage + 1)));
-  rows.push(nav);
-  rows.push([Markup.button.callback('✉️ Continue', 'dm_pick_done:' + campaignId)]);
-  rows.push([Markup.button.callback('⬅️ DM Campaigns', 'campaign_dm')]);
+  rows.push([cb('▶️ Continue', doneAction)]);
+  rows.push([cb('⬅️ Back', 'main_menu')]);
   return Markup.inlineKeyboard(rows);
 };
 
-export const dmDraftKeyboard = (campaignId, delayMs = 20000) => Markup.inlineKeyboard([
-  [Markup.button.callback('👥 Recipients', 'dm_pick_open:' + campaignId)],
-  [Markup.button.callback('⏱️ Delay: ' + Math.round(delayMs / 1000) + 's', 'dm_delay_menu:' + campaignId)],
-  [Markup.button.callback('✏️ Edit Message', 'dm_edit:' + campaignId)],
-  [Markup.button.callback('▶️ Review & Send', 'dm_send:' + campaignId)],
-  [Markup.button.callback('⬅️ Dashboard', 'main_menu')]
-]);
-
-export const dmRunningKeyboard = campaignId => Markup.inlineKeyboard([
-  [Markup.button.callback('⏸️ Pause', 'dm_pause:' + campaignId), Markup.button.callback('🛑 Stop', 'dm_stop:' + campaignId)],
-  [Markup.button.callback('⬅️ Dashboard', 'main_menu')]
-]);
-
-export const dmPausedKeyboard = campaignId => Markup.inlineKeyboard([
-  [Markup.button.callback('▶️ Resume', 'dm_resume:' + campaignId), Markup.button.callback('🛑 Stop', 'dm_stop:' + campaignId)],
-  [Markup.button.callback('⬅️ Dashboard', 'main_menu')]
-]);
-
-export const delayKeyboard = (campaignId, currentMs, backAction = 'main_menu') => {
-  const values = [10000, 15000, 20000, 30000, 60000];
-  const label = ms => Math.round(ms / 1000) + 's';
-  return Markup.inlineKeyboard([
-    values.slice(0, 3).map(ms => Markup.button.callback((ms === currentMs ? '✅ ' : '') + label(ms), 'campaign_delay:' + campaignId + ':' + ms)),
-    values.slice(3).map(ms => Markup.button.callback((ms === currentMs ? '✅ ' : '') + label(ms), 'campaign_delay:' + campaignId + ':' + ms)),
-    [Markup.button.callback('⬅️ Back', backAction)]
+export const accountManageKeyboard = accounts => {
+  const rows = accounts.map(a => [
+    cb((a.status === 'connected' ? '🟢 ' : '⚪ ') + (a.phoneMasked || 'Account'), 'account_manage:' + a._id)
   ]);
+  rows.push([cb('➕ Add Account', 'add_account')]);
+  rows.push([cb('⬅️ Dashboard', 'main_menu')]);
+  return Markup.inlineKeyboard(rows);
 };
 
-export const groupMenuKeyboard = () => Markup.inlineKeyboard([
-  [Markup.button.callback('✉️ New Group Campaign', 'group_new')],
-  [Markup.button.callback('🔎 Scan Groups', 'group_scan')],
-  [Markup.button.callback('⬅️ Dashboard', 'main_menu')]
+export const accountConfirmRemoveKeyboard = id => Markup.inlineKeyboard([
+  [cb('⚠️ Yes, Remove', 'account_remove_confirm:' + id)],
+  [cb('❌ Cancel', 'feature_account')]
 ]);
 
-export const groupDraftKeyboard = (campaignId, delayMs) => Markup.inlineKeyboard([
-  [Markup.button.callback('⏱️ Delay: ' + Math.round(delayMs / 1000) + 's', 'group_delay_menu:' + campaignId)],
-  [Markup.button.callback('▶️ Send to Groups', 'group_send:' + campaignId)],
-  [Markup.button.callback('✏️ Edit Message', 'group_edit:' + campaignId)],
-  [Markup.button.callback('🔎 Scan Groups', 'group_scan')],
-  [Markup.button.callback('⬅️ Dashboard', 'main_menu')]
+export const simpleBackKeyboard = (action = 'main_menu') => Markup.inlineKeyboard([
+  [cb('⬅️ Back', action)]
 ]);
 
-export const groupRunningKeyboard = campaignId => Markup.inlineKeyboard([
-  [Markup.button.callback('⏸️ Pause', 'group_pause:' + campaignId), Markup.button.callback('🛑 Stop', 'group_stop:' + campaignId)],
-  [Markup.button.callback('⬅️ Dashboard', 'main_menu')]
+export const confirmKeyboard = (yes, no = 'main_menu') => Markup.inlineKeyboard([
+  [cb('✅ Confirm', yes)],
+  [cb('❌ Cancel', no)]
 ]);
 
-export const groupPausedKeyboard = campaignId => Markup.inlineKeyboard([
-  [Markup.button.callback('▶️ Resume', 'group_resume:' + campaignId), Markup.button.callback('🛑 Stop', 'group_stop:' + campaignId)],
-  [Markup.button.callback('⬅️ Dashboard', 'main_menu')]
+export const featureHomeKeyboard = (feature) => Markup.inlineKeyboard([
+  [cb('➕ Create', feature + '_create')],
+  [cb('📜 History', feature + '_history')],
+  [cb('⬅️ Dashboard', 'main_menu')]
 ]);
 
-export const scanMenuKeyboard = () => Markup.inlineKeyboard([
-  [Markup.button.callback('👤 Personal Contacts', 'scan_personal')],
-  [Markup.button.callback('👥 Groups', 'scan_groups')],
-  [Markup.button.callback('⬅️ Dashboard', 'main_menu')]
+export const templateKeyboard = templates => {
+  const rows = templates.map(t => [
+    cb((t.active ? '🟢 ' : '⚪ ') + t.name, 'template_open:' + t._id)
+  ]);
+  rows.push([cb('➕ New Message', 'template_new')]);
+  rows.push([cb('⬅️ Dashboard', 'main_menu')]);
+  return Markup.inlineKeyboard(rows);
+};
+
+export const templateManageKeyboard = id => Markup.inlineKeyboard([
+  [cb('✏️ Edit', 'template_edit:' + id), cb('👁️ Preview', 'template_preview:' + id)],
+  [cb('🟢 Set Active', 'template_active:' + id)],
+  [cb('🗑️ Delete', 'template_delete:' + id)],
+  [cb('⬅️ My Messages', 'feature_messages')]
 ]);
 
-export const scanListKeyboard = type => Markup.inlineKeyboard([
-  [Markup.button.callback('🔄 Scan Again', type === 'personal' ? 'scan_personal' : 'scan_groups')],
-  [Markup.button.callback('📩 Use in DM Campaign', 'dm_scanned')],
-  [Markup.button.callback('⬅️ Dashboard', 'main_menu')]
+export const groupKeyboard = () => Markup.inlineKeyboard([
+  [cb('🔄 Refresh Groups', 'group_refresh')],
+  [cb('☑️ Select Groups', 'group_select')],
+  [cb('📨 New Group Campaign', 'group_new')],
+  [cb('⏰ Auto Start', 'group_autostart')],
+  [cb('📜 Campaign History', 'group_history')],
+  [cb('⬅️ Dashboard', 'main_menu')]
 ]);
+
+export const campaignControlKeyboard = id => Markup.inlineKeyboard([
+  [cb('⏸️ Pause', 'campaign_pause:' + id), cb('🛑 Stop', 'campaign_stop:' + id)],
+  [cb('▶️ Resume', 'campaign_resume:' + id)],
+  [cb('⬅️ Dashboard', 'main_menu')]
+]);
+
+export const messageInputKeyboard = back => Markup.inlineKeyboard([
+  [cb('❌ Cancel', back)]
+]);
+
+export const adKeyboard = () => Markup.inlineKeyboard([
+  [cb('➕ Create Ad', 'ad_create')],
+  [cb('📋 My Ads', 'feature_ads_logs')],
+  [cb('⬅️ Dashboard', 'main_menu')]
+]);
+
+export const adminKeyboard = () => Markup.inlineKeyboard([
+  [cb('📊 Dashboard', 'admin_dashboard')],
+  [cb('👥 Users', 'admin_users'), cb('👤 Accounts', 'admin_accounts')],
+  [cb('📨 Campaigns', 'admin_campaigns'), cb('📢 Ads', 'admin_ads')],
+  [cb('💳 Payments', 'admin_payments'), cb('💰 Wallet', 'admin_wallet')],
+  [cb('🎁 Redeem', 'admin_redeem'), cb('👥 Referral', 'admin_referral')],
+  [cb('⚙️ Settings', 'admin_settings'), cb('🛠️ Maintenance', 'admin_maintenance')],
+  [cb('🚫 Ban/Unban', 'admin_ban'), cb('📝 Logs', 'admin_logs')],
+  [cb('🆘 Support', 'admin_support'), cb('📖 How To Use', 'admin_howto')],
+  [cb('🤖 Create Bot', 'admin_create_bot')],
+  [cb('⬅️ Dashboard', 'main_menu')]
+]);
+
+export const paginationKeyboard = (prefix, page, totalPages, back = 'main_menu') => {
+  const row = [];
+  if (page > 0) row.push(cb('◀️', prefix + ':' + (page - 1)));
+  row.push(cb((page + 1) + '/' + totalPages, prefix + ':' + page));
+  if (page < totalPages - 1) row.push(cb('▶️', prefix + ':' + (page + 1)));
+  return Markup.inlineKeyboard([row, [cb('⬅️ Back', back)]]);
+};
