@@ -13,7 +13,8 @@ const eventSchema = new mongoose.Schema({
   ownerId: { type: Number, index: true, required: true },
   accountId: { type: mongoose.Schema.Types.ObjectId, index: true, required: true },
   senderId: { type: String, required: true },
-  repliedAt: { type: Date, default: Date.now }
+  repliedAt: { type: Date, default: Date.now },
+  lastMessageId: { type: String, default: '' }
 }, { timestamps: true });
 
 eventSchema.index({ accountId: 1, senderId: 1 }, { unique: true });
