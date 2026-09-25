@@ -340,6 +340,16 @@ export function registerAdminV2Handlers(bot, config) {
     await ctx.reply('✅ Redeem code disabled.');
   });
 
+  bot.command('adminperm', async ctx => {
+    const record = await adminRecord(ctx.from.id);
+    if (!record || !['owner','super_admin'].includes(record.role)) return ctx.reply('⛔ Owner/Super Admin only.');
+    const [, idText, ...permissions] = ctx.message.text.trim().split(/\\s+/);
+    const telegramId = Number(idText);
+    if (!Number.isSafeInteger(telegramId) || !permissions.length) return ctx.reply('Usage: /adminperm TELEGRAM_ID permission1 permission2 ...');
+    await AdminUser.updateOne({ telegramId }, { $set: { permissions: [...new Set(permissions)] } });
+    await ctx.reply('✅ Admin permissions updated.');
+  });
+
   bot.command('unban', async ctx => {
     const record = await adminOnly(ctx, 'users');
     if (!record) return;
