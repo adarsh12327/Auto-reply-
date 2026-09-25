@@ -15,6 +15,24 @@ import { registerAdminV2Handlers } from '../handlers/adminV2.js';
 export function createBot(config) {
   const bot = new Telegraf(config.botToken);
 
+  // Telegram callback queries can expire while slow account/recipient sync is running.
+  // Treat an expired acknowledgement as harmless instead of surfacing a generic bot error.
+  bot.use(async (ctx, next) => {
+    if (ctx.callbackQuery) {
+      const originalAnswer = ctx.answerCbQuery.bind(ctx);
+      ctx.answerCbQuery = async (...args) => {
+        try {
+          return await originalAnswer(...args);
+        } catch (error) {
+          const message = String(error?.description || error?.message || '');
+          if (message.includes('query is too old') || message.includes('query ID is invalid')) return false;
+          throw error;
+        }
+      };
+    }
+    return next();
+  });
+
   bot.start(startHandler);
 
   bot.command('menu', async ctx => {
@@ -61,6 +79,7 @@ export function createBot(config) {
       callbackData: ctx?.callbackQuery?.data,
       command: ctx?.message?.text
     });
+    if (ctx?.callbackQuery) return ctx.answerCbQuery().catch(() => {});
     return ctx.reply('❌ Something went wrong. Please try again.').catch(() => {});
   });
 
