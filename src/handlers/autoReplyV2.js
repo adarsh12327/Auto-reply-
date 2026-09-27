@@ -4,7 +4,7 @@ import { AutoReplySetting } from '../models/autoReply.js';
 import { MessageTemplate } from '../models/messages.js';
 import { UiState } from '../models/uiState.js';
 import { getBusinessSettings } from '../services/businessSettings.js';
-import { accountPickerKeyboard, simpleBackKeyboard, safeTelegramText, safeTelegramCallbackData } from '../bot/keyboards.js';
+import { accountPickerKeyboard, simpleBackKeyboard, safeTelegramText } from '../bot/keyboards.js';
 
 const key = 'autoreply_flow';
 
