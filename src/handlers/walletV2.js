@@ -14,6 +14,17 @@ async function edit(ctx, text, keyboard = Markup.inlineKeyboard([[Markup.button.
 }
 
 export function registerWalletHandlers(bot) {
+  bot.action('wallet_cancel', async ctx => {
+    await ctx.answerCbQuery('Cancelled');
+    await UiState.deleteOne({ ownerId: ctx.from.id, key });
+    const wallet = await ensureWallet(ctx.from.id);
+    await edit(ctx, '💰 <b>WALLET</b>\n\nBalance: ₹' + Number(wallet.balance || 0).toFixed(2), Markup.inlineKeyboard([
+      [Markup.button.callback('➕ Add Balance', 'wallet_add')],
+      [Markup.button.callback('🎁 Redeem Code', 'feature_redeem')],
+      [Markup.button.callback('⬅️ Dashboard', 'main_menu')]
+    ]));
+  });
+
   bot.action('feature_redeem', async ctx => {
     await ctx.answerCbQuery();
     await UiState.findOneAndUpdate(
@@ -48,7 +59,7 @@ export function registerWalletHandlers(bot) {
       '➕ <b>ADD BALANCE</b>\n\nUPI: <code>' + String(s.upiId || 'Not configured') + '</code>\n\n' +
       String(s.paymentInstructions || '') + '\n\n' +
       'For now, balance credits require manual admin verification.\n\nSend the amount you paid first, then send the UPI transaction reference.',
-      Markup.inlineKeyboard([[Markup.button.callback('❌ Cancel', 'wallet')]])
+      Markup.inlineKeyboard([[Markup.button.callback('❌ Cancel', 'wallet_cancel')]])
     );
   });
 
