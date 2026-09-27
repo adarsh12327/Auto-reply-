@@ -219,9 +219,20 @@ export async function canPost(client, target) {
 
 const campaignPeerMaps = new WeakMap();
 
-async function resolveCampaignUser(client, target, username = '') {
+async function resolveCampaignUser(client, target, username = '', accessHash = '') {
   const targetId = String(target);
   const normalizedUsername = String(username || '').replace(/^@/, '').trim();
+  const normalizedAccessHash = String(accessHash || '').trim();
+
+  if (normalizedAccessHash) {
+    try {
+      const byAccessHash = await client.getEntity(new Api.InputPeerUser({ userId: BigInt(target), accessHash: BigInt(normalizedAccessHash) }));
+      if (byAccessHash instanceof Api.User) {
+        peerMapSet(client, targetId, byAccessHash);
+        return byAccessHash;
+      }
+    } catch {}
+  }
 
   if (normalizedUsername) {
     try {
@@ -274,8 +285,8 @@ function peerMapSet(client, targetId, entity) {
   if (map) map.set(String(targetId), entity);
 }
 
-export async function sendAuthorizedMessage(client, target, message, username = '') {
-  const entity = await resolveCampaignUser(client, target, username);
+export async function sendAuthorizedMessage(client, target, message, username = '', accessHash = '') {
+  const entity = await resolveCampaignUser(client, target, username, accessHash);
   await client.sendMessage(entity, { message });
 }
 
