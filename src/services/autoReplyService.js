@@ -49,7 +49,11 @@ export async function pollAutoReplies(encryptionKey, maxAccounts = 20) {
       );
 
       const now = Date.now();
-      const cooldown = 0; // Testing mode: reply to every new incoming message.
+      const settings = await getBusinessSettings();
+      const cooldown = Math.min(
+        Math.max(0, Number(setting.cooldownMs) || 0),
+        Math.max(0, Number(settings.maxAutoReplyCooldownMs) || 24 * 60 * 60 * 1000)
+      );
 
       for await (const dialog of client.iterDialogs({})) {
         const entity = dialog.entity;
