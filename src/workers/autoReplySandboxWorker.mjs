@@ -105,11 +105,25 @@ async function attachAccount(account) {
 
     client.addEventHandler(async event => {
       const message = event.message;
-      if (!message || message.out || !message.isPrivate) return;
+      if (!message || message.out || !event.isPrivate) return;
 
       try {
-        const sender = await message.getSender();
-        if (!(sender instanceof Api.User) || sender.bot || sender.self || sender.deleted) return;
+        let sender = await message.getSender();
+        if (!sender && message.senderId != null) {
+          try {
+            sender = await client.getEntity(message.senderId);
+          } catch {}
+        }
+
+        console.log(JSON.stringify({
+          level: 'info',
+          message: 'Auto Reply incoming DM detected',
+          accountId: id,
+          senderId: message.senderId == null ? '' : String(message.senderId),
+          resolved: Boolean(sender)
+        }));
+
+        if (!(sender instanceof Api.User) || sender.bot || sender.self) return;
 
         const setting = await AutoReplySetting.findOne({
           accountId: account._id,
@@ -117,10 +131,24 @@ async function attachAccount(account) {
           enabled: true
         }).lean();
 
-        if (!setting) return;
+        if (!setting) {
+          console.log(JSON.stringify({
+            level: 'info',
+            message: 'Auto Reply skipped: no enabled setting',
+            accountId: id
+          }));
+          return;
+        }
 
         const text = await replyText(setting);
-        if (!text) return;
+        if (!text) {
+          console.log(JSON.stringify({
+            level: 'info',
+            message: 'Auto Reply skipped: empty reply text',
+            accountId: id
+          }));
+          return;
+        }
 
         const incomingId = String(message.id || '');
         const senderId = String(sender.id);
@@ -132,7 +160,15 @@ async function attachAccount(account) {
           senderId
         }).lean();
 
-        if (eventRecord?.lastMessageId === incomingId) return;
+        if (eventRecord?.lastMessageId === incomingId) {
+          console.log(JSON.stringify({
+            level: 'info',
+            message: 'Auto Reply skipped: message already processed',
+            accountId: id,
+            senderId
+          }));
+          return;
+        }
 
         const cooldown = Math.max(0, Number(setting.cooldownMs) || 0);
         const cooldownActive =
@@ -140,6 +176,12 @@ async function attachAccount(account) {
           now - new Date(eventRecord.repliedAt).getTime() < cooldown;
 
         if (cooldownActive) {
+          console.log(JSON.stringify({
+            level: 'info',
+            message: 'Auto Reply skipped: cooldown active',
+            accountId: id,
+            senderId
+          }));
           await AutoReplyEvent.findOneAndUpdate(
             { accountId: account._id, senderId },
             {
