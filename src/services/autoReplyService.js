@@ -35,6 +35,19 @@ export async function pollAutoReplies(encryptionKey, maxAccounts = 20) {
       const text = await replyTextFor(setting);
       if (!text) continue;
 
+      // Keep the legacy account-level fields synchronized with the same
+      // AutoReplySetting used by the dashboard. The live MTProto listener
+      // reads these fields, while the poller reads AutoReplySetting.
+      await Account.updateOne(
+        { _id: account._id },
+        {
+          $set: {
+            autoReplyEnabled: Boolean(setting.enabled),
+            autoReplyText: text
+          }
+        }
+      );
+
       const now = Date.now();
       const settings = await getBusinessSettings();
       const cooldown = Math.min(
