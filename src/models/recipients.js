@@ -4,6 +4,7 @@ const schema = new mongoose.Schema({
   ownerId: { type: Number, index: true, required: true },
   accountId: { type: mongoose.Schema.Types.ObjectId, index: true, required: true },
   telegramUserId: { type: String, required: true },
+  accessHash: { type: String, default: '' },
   name: { type: String, default: '' },
   username: { type: String, default: '' },
   authorized: { type: Boolean, default: false },
