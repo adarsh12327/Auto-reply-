@@ -37,17 +37,35 @@ export async function getBusinessSetting(key, fallback = DEFAULTS[key]) {
   return row ? row.value : fallback;
 }
 
-export async function getBusinessSettings() {
-  const rows = await BusinessSetting.find({}).lean();
-  const out = { ...DEFAULTS };
-  for (const row of rows) out[row.key] = row.value;
-  return out;
+let settingsCache = null;
+let settingsCacheAt = 0;
+let settingsPromise = null;
+const SETTINGS_TTL_MS = 10000;
+
+export function invalidateBusinessSettingsCache() {
+  settingsCache = null;
+  settingsCacheAt = 0;
 }
 
+export async function getBusinessSettings() {
+  const now = Date.now();
+  if (settingsCache && now - settingsCacheAt < SETTINGS_TTL_MS) return settingsCache;
+  if (settingsPromise) return settingsPromise;
+  settingsPromise = BusinessSetting.find({}).lean().then(rows => {
+    const out = { ...DEFAULTS };
+    for (const row of rows) out[row.key] = row.value;
+    settingsCache = out;
+    settingsCacheAt = Date.now();
+    return out;
+  }).finally(() => { settingsPromise = null; });
+  return settingsPromise;
+
 export async function setBusinessSetting(key, value, updatedBy) {
-  return BusinessSetting.findOneAndUpdate(
+  const result = await BusinessSetting.findOneAndUpdate(
     { key },
     { $set: { value, updatedBy } },
     { upsert: true, new: true }
   );
+  invalidateBusinessSettingsCache();
+  return result;
 }
