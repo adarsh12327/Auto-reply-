@@ -57,56 +57,67 @@ export async function pollAutoReplies(encryptionKey, maxAccounts = 20) {
 
       for await (const dialog of client.iterDialogs({})) {
         const entity = dialog.entity;
-        if (!(entity instanceof Api.User) || entity.bot || entity.self) continue;
+        if (!(entity instanceof Api.User) || entity.bot || entity.self || entity.deleted) continue;
 
-        // Only inspect the latest message. Looking back through five messages
-        // could reply to an old incoming DM after the user had already sent
-        // something outgoing.
-        let latest = null;
-        for await (const message of client.iterMessages(entity, { limit: 1 })) {
-          latest = message;
-          break;
-        }
-        if (!latest || latest.out) continue;
+        // One bad/deleted Telegram contact must never abort the whole account
+        // poll. This is especially important on Vercel where one cron request
+        // processes multiple dialogs in sequence.
+        try {
+          // Only inspect the latest message. Looking back through five messages
+          // could reply to an old incoming DM after the user had already sent
+          // something outgoing.
+          let latest = null;
+          for await (const message of client.iterMessages(entity, { limit: 1 })) {
+            latest = message;
+            break;
+          }
+          if (!latest || latest.out) continue;
 
-        const incoming = latest;
-        const incomingId = messageId(incoming);
-        if (!incomingId) continue;
+          const incoming = latest;
+          const incomingId = messageId(incoming);
+          if (!incomingId) continue;
 
-        const event = await AutoReplyEvent.findOne({
-          accountId: account._id,
-          senderId: String(entity.id)
-        });
+          const event = await AutoReplyEvent.findOne({
+            accountId: account._id,
+            senderId: String(entity.id)
+          });
 
-        if (event?.lastMessageId === incomingId) continue;
+          if (event?.lastMessageId === incomingId) continue;
 
-        const cooldownActive = event?.repliedAt && now - new Date(event.repliedAt).getTime() < cooldown;
+          const cooldownActive = event?.repliedAt && now - new Date(event.repliedAt).getTime() < cooldown;
 
-        if (!cooldownActive) {
-          await client.sendMessage(entity, { message: text });
-          await AutoReplyEvent.findOneAndUpdate(
-            { accountId: account._id, senderId: String(entity.id) },
-            {
-              $set: {
-                ownerId: setting.ownerId,
-                repliedAt: new Date(),
-                lastMessageId: incomingId
-              }
-            },
-            { upsert: true, new: true }
-          );
-          results.push({ accountId: String(account._id), senderId: String(entity.id), sent: true });
-        } else {
-          await AutoReplyEvent.findOneAndUpdate(
-            { accountId: account._id, senderId: String(entity.id) },
-            {
-              $set: {
-                ownerId: setting.ownerId,
-                lastMessageId: incomingId
-              }
-            },
-            { upsert: true, new: true }
-          );
+          if (!cooldownActive) {
+            await client.sendMessage(entity, { message: text });
+            await AutoReplyEvent.findOneAndUpdate(
+              { accountId: account._id, senderId: String(entity.id) },
+              {
+                $set: {
+                  ownerId: setting.ownerId,
+                  repliedAt: new Date(),
+                  lastMessageId: incomingId
+                }
+              },
+              { upsert: true, new: true }
+            );
+            results.push({ accountId: String(account._id), senderId: String(entity.id), sent: true });
+          } else {
+            await AutoReplyEvent.findOneAndUpdate(
+              { accountId: account._id, senderId: String(entity.id) },
+              {
+                $set: {
+                  ownerId: setting.ownerId,
+                  lastMessageId: incomingId
+                }
+              },
+              { upsert: true, new: true }
+            );
+          }
+        } catch (error) {
+          logger.warn('Auto reply dialog skipped', {
+            accountId: String(account._id),
+            senderId: String(entity.id),
+            error: error?.message
+          });
         }
       }
     } catch (error) {
