@@ -170,7 +170,7 @@ async function attachAccount(account) {
           return;
         }
 
-        const cooldown = Math.max(0, Number(setting.cooldownMs) || 0);
+        const cooldown = Math.max(0, Number(setting.cooldownMs) || 60 * 60 * 1000);
         const cooldownActive =
           eventRecord?.repliedAt &&
           now - new Date(eventRecord.repliedAt).getTime() < cooldown;
