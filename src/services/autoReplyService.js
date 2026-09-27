@@ -49,10 +49,11 @@ export async function pollAutoReplies(encryptionKey, maxAccounts = 20) {
         // Only inspect the latest message. Looking back through five messages
         // could reply to an old incoming DM after the user had already sent
         // something outgoing.
-        const latest = (await (async () => {
-          for await (const message of client.iterMessages(entity, { limit: 1 })) return message;
-          return null;
-        })());
+        let latest = null;
+        for await (const message of client.iterMessages(entity, { limit: 1 })) {
+          latest = message;
+          break;
+        }
         if (!latest || latest.out) continue;
 
         const incoming = latest;
