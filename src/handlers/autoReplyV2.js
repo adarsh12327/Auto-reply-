@@ -27,7 +27,7 @@ async function show(ctx, accountId) {
   await edit(ctx,
     '🤖 <b>AUTO REPLY</b>\n\n' +
     'Status: ' + (setting?.enabled ? '🟢 ON' : '🔴 OFF') + '\n' +
-    'Cooldown: ' + Math.round((setting?.cooldownMs || 3600000) / 60000) + ' minutes\n' +
+    'Cooldown: ' + formatCooldown(setting?.cooldownMs) + '\n' +
     'Reply: ' + (setting?.fallbackText || (setting?.templateId ? 'Saved template' : 'Not configured')) + '\n\n' +
     '<i>Vercel deployment uses persistent polling for this feature; it is not a permanent MTProto listener.</i>',
     Markup.inlineKeyboard(rows)
@@ -184,9 +184,9 @@ export function registerAutoReplyV2Handlers(bot, config) {
     await ctx.answerCbQuery();
     const accountId = ctx.match[1];
     await edit(ctx, '⏱️ <b>SELECT COOLDOWN</b>\n\nCooldown is per individual sender.', Markup.inlineKeyboard([
-      [Markup.button.callback('15 min', 'autoreply_setcool:' + accountId + ':900000'), Markup.button.callback('30 min', 'autoreply_setcool:' + accountId + ':1800000')],
-      [Markup.button.callback('1 hour', 'autoreply_setcool:' + accountId + ':3600000'), Markup.button.callback('6 hours', 'autoreply_setcool:' + accountId + ':21600000')],
-      [Markup.button.callback('24 hours', 'autoreply_setcool:' + accountId + ':86400000')],
+      [Markup.button.callback('20 min', 'autoreply_setcool:' + accountId + ':1200000'), Markup.button.callback('30 min', 'autoreply_setcool:' + accountId + ':1800000')],
+      [Markup.button.callback('40 min', 'autoreply_setcool:' + accountId + ':2400000'), Markup.button.callback('60 min', 'autoreply_setcool:' + accountId + ':3600000')],
+      [Markup.button.callback('120 min', 'autoreply_setcool:' + accountId + ':7200000'), Markup.button.callback('24 hours', 'autoreply_setcool:' + accountId + ':86400000')],
       [Markup.button.callback('⬅️ Back', 'feature_autoreply')]
     ]));
   });
@@ -195,6 +195,9 @@ export function registerAutoReplyV2Handlers(bot, config) {
     await ctx.answerCbQuery('Cooldown saved');
     const accountId = ctx.match[1];
     const ms = Number(ctx.match[2]);
+    if (![1200000, 1800000, 2400000, 3600000, 7200000, 86400000].includes(ms)) {
+      return edit(ctx, '❌ Invalid cooldown option.');
+    }
     const settings = await getBusinessSettings();
     await AutoReplySetting.findOneAndUpdate(
       { ownerId: ctx.from.id, accountId },
@@ -223,6 +226,13 @@ export function registerAutoReplyV2Handlers(bot, config) {
     await ctx.reply('✅ Auto Reply message saved.', mainKeyboardFallback());
     return;
   });
+}
+
+function formatCooldown(ms) {
+  const value = Number(ms);
+  if (!Number.isFinite(value) || value <= 0) return 'Off';
+  if (value === 86400000) return '24 hours';
+  return Math.round(value / 60000) + ' minutes';
 }
 
 function mainKeyboardFallback() {
