@@ -20,15 +20,17 @@ export function createBot(config) {
   bot.use(async (ctx, next) => {
     if (ctx.callbackQuery) {
       const originalAnswer = ctx.answerCbQuery.bind(ctx);
-      ctx.answerCbQuery = async (...args) => {
-        try {
-          return await originalAnswer(...args);
-        } catch (error) {
-          const message = String(error?.description || error?.message || '');
-          if (message.includes('query is too old') || message.includes('query ID is invalid')) return false;
-          throw error;
+      // Acknowledge the Telegram callback immediately, without making every
+      // handler wait for this network round-trip before starting its DB work.
+      void originalAnswer().catch(error => {
+        const message = String(error?.description || error?.message || '');
+        if (!message.includes('query is too old') && !message.includes('query ID is invalid')) {
+          console.warn('Callback acknowledgement failed:', message);
         }
-      };
+      });
+      // Individual handlers still call answerCbQuery(); make that call cheap
+      // because the query has already been acknowledged above.
+      ctx.answerCbQuery = async () => true;
     }
     return next();
   });
