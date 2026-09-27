@@ -36,17 +36,26 @@ export async function pollAutoReplies(encryptionKey, maxAccounts = 20) {
       if (!text) continue;
 
       const now = Date.now();
+      const settings = await getBusinessSettings();
+      const cooldown = Math.min(
+        Math.max(0, Number(setting.cooldownMs) || 0),
+        Math.max(0, Number(settings.maxAutoReplyCooldownMs) || 24 * 60 * 60 * 1000)
+      );
+
       for await (const dialog of client.iterDialogs({})) {
         const entity = dialog.entity;
         if (!(entity instanceof Api.User) || entity.bot || entity.self) continue;
 
-        const recent = [];
-        for await (const message of client.iterMessages(entity, { limit: 5 })) {
-          if (!message?.out) recent.push(message);
-        }
-        if (!recent.length) continue;
+        // Only inspect the latest message. Looking back through five messages
+        // could reply to an old incoming DM after the user had already sent
+        // something outgoing.
+        const latest = (await (async () => {
+          for await (const message of client.iterMessages(entity, { limit: 1 })) return message;
+          return null;
+        })());
+        if (!latest || latest.out) continue;
 
-        const incoming = recent[0];
+        const incoming = latest;
         const incomingId = messageId(incoming);
         if (!incomingId) continue;
 
@@ -56,11 +65,6 @@ export async function pollAutoReplies(encryptionKey, maxAccounts = 20) {
         });
 
         if (event?.lastMessageId === incomingId) continue;
-
-        const cooldown = Math.min(
-          Math.max(0, Number(setting.cooldownMs) || 0),
-          Math.max(0, Number((await getBusinessSettings()).maxAutoReplyCooldownMs) || 24 * 60 * 60 * 1000)
-        );
 
         const cooldownActive = event?.repliedAt && now - new Date(event.repliedAt).getTime() < cooldown;
 
