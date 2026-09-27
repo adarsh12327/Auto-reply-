@@ -18,7 +18,7 @@ async function edit(ctx, text, keyboard = simpleBackKeyboard()) {
 async function show(ctx, accountId) {
   const setting = await AutoReplySetting.findOne({ ownerId: ctx.from.id, accountId }).lean();
   const templates = await MessageTemplate.find({ ownerId: ctx.from.id }).sort({ active: -1, createdAt: -1 }).limit(10).lean();
-  const rows = templates.map(t => [Markup.button.callback(safeTelegramText((t.active ? '🟢 ' : '⚪ ') + t.name), safeTelegramCallbackData('autoreply_template:' + accountId + ':' + t._id))]);
+  const rows = templates.map(t => [Markup.button.callback(safeTelegramText((t.active ? '🟢 ' : '⚪ ') + t.name), 'art:' + accountId + ':' + t._id)]);
   rows.push([Markup.button.callback('✏️ Write Reply', 'autoreply_write:' + accountId)]);
   rows.push([Markup.button.callback(setting?.enabled ? '⏸️ Disable' : '▶️ Enable', setting?.enabled ? 'autoreply_disable:' + accountId : 'autoreply_enable:' + accountId)]);
   rows.push([Markup.button.callback('⏱️ Cooldown', 'autoreply_cooldown:' + accountId)]);
@@ -138,7 +138,7 @@ export function registerAutoReplyV2Handlers(bot, config) {
     await show(ctx, accountId);
   });
 
-  bot.action(/^autoreply_template:(.+):(.+)$/, async ctx => {
+  bot.action(/^art:(.+):(.+)$/, async ctx => {
     await ctx.answerCbQuery();
     const accountId = ctx.match[1];
     const templateId = ctx.match[2];
