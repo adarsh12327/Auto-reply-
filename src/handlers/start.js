@@ -8,7 +8,9 @@ export async function startHandler(ctx) {
   const telegramId = ctx.from.id;
   const payload = ctx.startPayload || '';
 
-  await User.findOneAndUpdate(
+  // User persistence, settings and access verification are independent on the
+  // normal start path, so run them concurrently instead of serially.
+  const userUpdatePromise = User.findOneAndUpdate(
     { telegramId },
     {
       $set: {
@@ -27,6 +29,14 @@ export async function startHandler(ctx) {
     { upsert: true }
   );
 
+  const settingsPromise = getBusinessSettings();
+  const accessPromise = checkRequiredJoin(ctx);
+  const [settings, access] = await Promise.all([
+    settingsPromise,
+    accessPromise,
+    userUpdatePromise
+  ]);
+
   if (payload.startsWith('ref_')) {
     const referrerId = Number(payload.slice(4));
     if (Number.isSafeInteger(referrerId) && referrerId !== telegramId) {
@@ -35,19 +45,12 @@ export async function startHandler(ctx) {
         { $set: { referrerId } }
       );
     }
-  }
 
-  // Keep the normal /start path lean: referral bookkeeping is only needed
-  // when this start message actually contains a referral payload.
-  if (payload.startsWith('ref_')) {
+    // Referral bookkeeping is only needed for an actual referral start.
     await ensureReferralProfile(telegramId);
     await rewardReferralIfEligible(telegramId, 'start').catch(() => {});
   }
 
-  // These independent checks can run concurrently instead of serially.
-  const settingsPromise = getBusinessSettings();
-  const accessPromise = checkRequiredJoin(ctx);
-  const [settings, access] = await Promise.all([settingsPromise, accessPromise]);
   if (!access.allowed) {
     await ctx.reply(
       '🔐 <b>Join verification required</b>\n\nPlease join the required channel and then tap <b>I Joined — Verify</b>.',
