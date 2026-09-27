@@ -9,7 +9,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "check": "node scripts/check-syntax.mjs"
+    "check": "node scripts/check-syntax.mjs",
+    "button-audit": "node scripts/button-audit.mjs"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
