@@ -4,6 +4,7 @@ import { BusinessCampaign } from '../src/models/campaigns.js';
 import { processCampaignBatch } from '../src/services/businessCampaignService.js';
 import { pollAutoReplies } from '../src/services/autoReplyService.js';
 import { processAdBatch } from '../src/services/adDeliveryService.js';
+import { ensureInstantAutoReplyWorker } from '../src/services/autoReplySandbox.js';
 
 let ready;
 
@@ -40,7 +41,20 @@ export default async function handler(req, res) {
       campaignResults.push(await processCampaignBatch(campaign._id, config.encryptionKey, 8));
     }
 
-    const autoReplyResults = await pollAutoReplies(config.encryptionKey, 10);
+    let instantWorker = false;
+    try {
+      await ensureInstantAutoReplyWorker({
+        mongoUri: config.mongoUri,
+        encryptionKeyHex: config.encryptionKey.toString('hex')
+      });
+      instantWorker = true;
+    } catch (workerError) {
+      console.warn('Instant Auto Reply worker start failed; using polling fallback:', workerError?.message);
+    }
+
+    const autoReplyResults = instantWorker
+      ? []
+      : await pollAutoReplies(config.encryptionKey, 10);
     const adResults = await processAdBatch(config.encryptionKey, 5);
 
     res.status(200).json({
