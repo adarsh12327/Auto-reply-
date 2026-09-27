@@ -27,7 +27,7 @@ async function show(ctx, accountId) {
   await edit(ctx,
     '🤖 <b>AUTO REPLY</b>\n\n' +
     'Status: ' + (setting?.enabled ? '🟢 ON' : '🔴 OFF') + '\n' +
-    'Cooldown: ' + formatCooldown(setting?.cooldownMs) + '\n' +
+    'Cooldown: ' + formatCooldown(setting?.cooldownMs || 3600000) + '\n' +
     'Reply: ' + (setting?.fallbackText || (setting?.templateId ? 'Saved template' : 'Not configured')) + '\n\n' +
     '<i>Vercel deployment uses persistent polling for this feature; it is not a permanent MTProto listener.</i>',
     Markup.inlineKeyboard(rows)
@@ -230,7 +230,7 @@ export function registerAutoReplyV2Handlers(bot, config) {
 
 function formatCooldown(ms) {
   const value = Number(ms);
-  if (!Number.isFinite(value) || value <= 0) return 'Off';
+  if (!Number.isFinite(value) || value <= 0) return '60 minutes';
   if (value === 86400000) return '24 hours';
   return Math.round(value / 60000) + ' minutes';
 }
