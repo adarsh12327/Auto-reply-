@@ -27,6 +27,7 @@ export async function syncAuthorizedRecipients(ownerId, accountId, encryptionKey
       ownerId,
       accountId: account._id,
       telegramUserId: String(entity.id),
+      accessHash: entity.accessHash != null ? String(entity.accessHash) : '',
       name: [entity.firstName, entity.lastName].filter(Boolean).join(' ').trim() || 'Unknown',
       username: entity.username ? String(entity.username) : '',
       authorized: true,
