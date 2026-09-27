@@ -59,6 +59,7 @@ export async function getBusinessSettings() {
     return out;
   }).finally(() => { settingsPromise = null; });
   return settingsPromise;
+}
 
 export async function setBusinessSetting(key, value, updatedBy) {
   const result = await BusinessSetting.findOneAndUpdate(
