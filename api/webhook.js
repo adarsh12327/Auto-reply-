@@ -25,24 +25,9 @@ export default async function handler(req, res) {
   try {
     const { bot } = await getBot();
 
-    // Keep Telegram pointed at the stable production alias rather than a
-    // temporary deployment URL. This prevents old Vercel deployments from
-    // continuing to serve stale bot keyboards after a redeploy.
-    const productionHost =
-      process.env.VERCEL_PROJECT_PRODUCTION_URL ||
-      'auto-reply-adarsh-patels-projects-6a25ba02.vercel.app';
-    const stableWebhookUrl = 'https://' + productionHost + '/api/webhook';
-
-    try {
-      const currentWebhook = await bot.telegram.getWebhookInfo();
-      if (currentWebhook.url !== stableWebhookUrl) {
-        await bot.telegram.setWebhook(stableWebhookUrl, {
-          allowed_updates: ['message', 'callback_query', 'chat_member', 'chat_join_request']
-        });
-      }
-    } catch (webhookError) {
-      console.warn('Webhook self-heal failed:', webhookError?.message);
-    }
+    // Webhook configuration is handled by /api/setup. Never call
+    // getWebhookInfo/setWebhook on every incoming update; that adds an
+    // unnecessary Telegram API round-trip to every button/message click.
 
     await bot.handleUpdate(req.body);
     res.status(200).json({ ok: true });
