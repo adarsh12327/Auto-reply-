@@ -84,6 +84,7 @@ async function showStats(ctx) {
 export function registerDashboardHandlers(bot, config) {
   bot.action('main_menu', async ctx => {
     await ctx.answerCbQuery();
+    await UiState.deleteMany({ ownerId: ctx.from.id });
     if (!(await requireMaintenanceBypass(ctx))) return;
     const access = await checkRequiredJoin(ctx);
     if (!access.allowed) {
