@@ -22,7 +22,7 @@ const settingSchema = new Schema({
   enabled: { type: Boolean, default: false },
   templateId: { type: Schema.Types.ObjectId, default: null },
   fallbackText: { type: String, default: '' },
-  cooldownMs: { type: Number, default: 0, min: 0 }
+  cooldownMs: { type: Number, default: 60 * 60 * 1000, min: 0 }
 }, { timestamps: true });
 
 const eventSchema = new Schema({
@@ -170,7 +170,7 @@ async function attachAccount(account) {
           return;
         }
 
-        const cooldown = 0; // Testing mode: reply to every new incoming message.
+        const cooldown = Math.max(0, Number(setting.cooldownMs) || 0);
         const cooldownActive =
           eventRecord?.repliedAt &&
           now - new Date(eventRecord.repliedAt).getTime() < cooldown;
