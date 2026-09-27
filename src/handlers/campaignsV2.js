@@ -227,8 +227,13 @@ export function registerCampaignV2Handlers(bot, config) {
 
   bot.action(/^campaign_write:(dm|group)$/, async ctx => {
     await ctx.answerCbQuery();
-    await setUiState(ctx.from.id, ctx.match[1] === 'dm' ? 'dm_flow' : 'group_flow', {
-      ...(await getUiState(ctx.from.id, ctx.match[1] === 'dm' ? 'dm_flow' : 'group_flow')).data,
+    const key = ctx.match[1] === 'dm' ? 'dm_flow' : 'group_flow';
+    const state = await getUiState(ctx.from.id, key);
+    if (!state?.data) {
+      return edit(ctx, '❌ Campaign setup expired. Please start the campaign again.', simpleBackKeyboard(ctx.match[1] === 'dm' ? 'feature_dm' : 'feature_group'));
+    }
+    await setUiState(ctx.from.id, key, {
+      ...state.data,
       step: 'message'
     });
     await edit(ctx, '✏️ <b>Campaign Message</b>\n\nSend the message you want to use.\n\n/cancel to stop.', messageInputKeyboard(ctx.match[1] === 'dm' ? 'feature_dm' : 'feature_group'));
