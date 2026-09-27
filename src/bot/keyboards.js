@@ -8,7 +8,7 @@ export const safeTelegramText = value => String(value ?? '').replace(/[\uD800-\u
 export const safeTelegramCallbackData = value => {
   const text = String(value ?? '')
     .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '�')
-    .replace(/[\\u0000-\\u001F\\u007F]/g, '');
+    .replace(/[\u0000-\u001F\u007F]/g, '');
   let out = '';
   let bytes = 0;
   for (const ch of text) {
