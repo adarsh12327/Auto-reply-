@@ -31,8 +31,8 @@ export const mainKeyboard = () => Markup.inlineKeyboard([
   [cb('📋 Ads Logs', 'feature_ads_logs'), cb('💬 Set Message', 'feature_messages')],
   [cb('👁️ Preview Message', 'feature_preview'), cb('📊 My Stats', 'feature_stats')],
   [cb('👤 My Account', 'feature_account'), cb('⭐ Go VIP Premium', 'feature_premium')],
-  [cb('🎁 Redeem Code', 'feature_redeem'), cb('➕ Add Account', 'add_account')],
-  [cb('➖ Remove Account', 'feature_remove_account'), cb('⏳ Accept Pending', 'feature_pending')],
+  [cb('🎁 Redeem Code', 'feature_redeem'), cb('💰 Wallet', 'wallet')],
+  [cb('➖ Remove Account', 'feature_remove_account'), cb('➕ Add Account', 'add_account')],
   [cb('📩 Join Request DM', 'feature_join_request'), cb('👥 Refer & Earn', 'feature_referral')],
   [cb('📖 How to Use', 'feature_howto'), cb('🆘 Support', 'feature_support')],
   [cb('🤖 Create Your Own Bot', 'feature_create_bot')]
