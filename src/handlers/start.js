@@ -37,11 +37,17 @@ export async function startHandler(ctx) {
     }
   }
 
-  await ensureReferralProfile(telegramId);
-  await rewardReferralIfEligible(telegramId, 'start').catch(() => {});
+  // Keep the normal /start path lean: referral bookkeeping is only needed
+  // when this start message actually contains a referral payload.
+  if (payload.startsWith('ref_')) {
+    await ensureReferralProfile(telegramId);
+    await rewardReferralIfEligible(telegramId, 'start').catch(() => {});
+  }
 
-  const settings = await getBusinessSettings();
-  const access = await checkRequiredJoin(ctx);
+  // These independent checks can run concurrently instead of serially.
+  const settingsPromise = getBusinessSettings();
+  const accessPromise = checkRequiredJoin(ctx);
+  const [settings, access] = await Promise.all([settingsPromise, accessPromise]);
   if (!access.allowed) {
     await ctx.reply(
       '🔐 <b>Join verification required</b>\n\nPlease join the required channel and then tap <b>I Joined — Verify</b>.',
