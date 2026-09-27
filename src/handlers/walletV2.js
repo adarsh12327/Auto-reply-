@@ -38,12 +38,17 @@ export function registerWalletHandlers(bot) {
 
   bot.action('wallet_add', async ctx => {
     await ctx.answerCbQuery();
+    await UiState.findOneAndUpdate(
+      { ownerId: ctx.from.id, key },
+      { $set: { data: { step: 'deposit_amount' }, expiresAt: new Date(Date.now()+10*60*1000) } },
+      { upsert: true }
+    );
     const s = await getBusinessSettings();
     await edit(ctx,
       '➕ <b>ADD BALANCE</b>\n\nUPI: <code>' + String(s.upiId || 'Not configured') + '</code>\n\n' +
       String(s.paymentInstructions || '') + '\n\n' +
-      'For now, balance credits require manual admin verification. Send the amount and transaction reference.',
-      Markup.inlineKeyboard([[Markup.button.callback('⬅️ Wallet', 'wallet')]])
+      'For now, balance credits require manual admin verification.\n\nSend the amount you paid first, then send the UPI transaction reference.',
+      Markup.inlineKeyboard([[Markup.button.callback('❌ Cancel', 'wallet')]])
     );
   });
 
