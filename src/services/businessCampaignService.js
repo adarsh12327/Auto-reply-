@@ -114,17 +114,18 @@ export async function processCampaignBatch(campaignId, encryptionKey, batchSize 
         await CampaignRecipient.updateOne({ _id: item._id, status: 'pending' }, { $set: { status: 'skipped', lastError: 'Posting permission unavailable' }, $inc: { attempts: 1 } });
         await BusinessCampaign.updateOne({ _id: campaign._id }, { $inc: { 'stats.skipped': 1 } });
       } else if (campaign.type === 'dm') {
-        const eligible = await BusinessRecipient.exists({
+        const recipient = await BusinessRecipient.findOne({
           ownerId: campaign.ownerId,
           accountId: account._id,
           telegramUserId: item.targetId,
           authorized: true
-        });
+        }).select('username');
+        const eligible = Boolean(recipient);
         if (!eligible) {
           await CampaignRecipient.updateOne({ _id: item._id, status: 'pending' }, { $set: { status: 'skipped', lastError: 'Recipient is no longer authorized' }, $inc: { attempts: 1 } });
           await BusinessCampaign.updateOne({ _id: campaign._id }, { $inc: { 'stats.skipped': 1 } });
         } else {
-          await sendAuthorizedMessage(client, item.targetId, campaign.message);
+          await sendAuthorizedMessage(client, item.targetId, campaign.message, recipient?.username || '');
           await CampaignRecipient.updateOne({ _id: item._id, status: 'pending' }, { $set: { status: 'sent', sentAt: new Date() }, $inc: { attempts: 1 } });
           await BusinessCampaign.updateOne({ _id: campaign._id }, { $inc: { 'stats.sent': 1 } });
         }
