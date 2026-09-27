@@ -119,13 +119,13 @@ export async function processCampaignBatch(campaignId, encryptionKey, batchSize 
           accountId: account._id,
           telegramUserId: item.targetId,
           authorized: true
-        }).select('username');
+        }).select('username accessHash');
         const eligible = Boolean(recipient);
         if (!eligible) {
           await CampaignRecipient.updateOne({ _id: item._id, status: 'pending' }, { $set: { status: 'skipped', lastError: 'Recipient is no longer authorized' }, $inc: { attempts: 1 } });
           await BusinessCampaign.updateOne({ _id: campaign._id }, { $inc: { 'stats.skipped': 1 } });
         } else {
-          await sendAuthorizedMessage(client, item.targetId, campaign.message, recipient?.username || '');
+          await sendAuthorizedMessage(client, item.targetId, campaign.message, recipient?.username || '', recipient?.accessHash || '');
           await CampaignRecipient.updateOne({ _id: item._id, status: 'pending' }, { $set: { status: 'sent', sentAt: new Date() }, $inc: { attempts: 1 } });
           await BusinessCampaign.updateOne({ _id: campaign._id }, { $inc: { 'stats.sent': 1 } });
         }
