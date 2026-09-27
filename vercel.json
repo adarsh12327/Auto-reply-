@@ -1,5 +1,6 @@
 {
   "version": 2,
+  "trailingSlash": false,
   "functions": {
     "api/webhook.js": {
       "maxDuration": 300
