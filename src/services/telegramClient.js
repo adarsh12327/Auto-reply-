@@ -219,8 +219,19 @@ export async function canPost(client, target) {
 
 const campaignPeerMaps = new WeakMap();
 
-async function resolveCampaignUser(client, target) {
+async function resolveCampaignUser(client, target, username = '') {
   const targetId = String(target);
+  const normalizedUsername = String(username || '').replace(/^@/, '').trim();
+
+  if (normalizedUsername) {
+    try {
+      const byUsername = await client.getEntity(normalizedUsername);
+      if (byUsername instanceof Api.User) {
+        peerMapSet(client, targetId, byUsername);
+        return byUsername;
+      }
+    } catch {}
+  }
 
   let peerMap = campaignPeerMaps.get(client);
   if (!peerMap) {
@@ -258,8 +269,13 @@ async function resolveCampaignUser(client, target) {
   );
 }
 
-export async function sendAuthorizedMessage(client, target, message) {
-  const entity = await resolveCampaignUser(client, target);
+function peerMapSet(client, targetId, entity) {
+  const map = campaignPeerMaps.get(client);
+  if (map) map.set(String(targetId), entity);
+}
+
+export async function sendAuthorizedMessage(client, target, message, username = '') {
+  const entity = await resolveCampaignUser(client, target, username);
   await client.sendMessage(entity, { message });
 }
 
