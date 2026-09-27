@@ -72,6 +72,15 @@ export function createBot(config) {
   registerAccountHandlers(bot, config);
   registerAdminV2Handlers(bot, config);
 
+  // Catch callback data that has no registered action handler. This prevents
+  // silent button failures and gives us a precise production diagnostic.
+  bot.on('callback_query', async ctx => {
+    const data = String(ctx.callbackQuery?.data || '');
+    console.warn('Unhandled callback query:', data);
+    await ctx.answerCbQuery('This button is outdated. Please open the menu again.').catch(() => {});
+    await ctx.reply('⚠️ This button is outdated. Please send /start to refresh the menu.').catch(() => {});
+  });
+
   bot.catch((error, ctx) => {
     console.error('Bot error:', {
       message: error?.message,
