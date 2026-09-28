@@ -1,4 +1,3 @@
-// Production deployment trigger: latest group/account picker fixes.\nimport { waitUntil } from '@vercel/functions';
 import { Markup } from 'telegraf';
 import { Api } from 'telegram';
 import { Account } from '../db.js';
@@ -273,27 +272,21 @@ export function registerCampaignV2Handlers(bot, config) {
       try {
         const groups = await syncAccountGroups(ctx.from.id, id, config.encryptionKey);
         total += groups.length;
-      } catch {}
+      } catch (error) {
+        console.warn('Group refresh failed:', { accountId: id, error: error?.message });
+      }
     }
 
+    // Re-render through the single group-picker renderer so existing
+    // selections stay checked after a refresh.
+    const latest = await getUiState(ctx.from.id, 'group_flow');
+    await setUiState(ctx.from.id, 'group_flow', {
+      ...(latest?.data || state.data),
+      step: 'targets',
+      accountIds: ids,
+      type: 'group'
+    });
     await showGroupTargets(ctx);
-    try {
-      await ctx.telegram.editMessageText(
-        ctx.chat.id,
-        ctx.callbackQuery.message.message_id,
-        undefined,
-        '👥 <b>WRITABLE GROUPS</b>\\n\\nGroups refreshed: ' + total + '\\n\\nSelect groups or use all writable groups.',
-        { parse_mode: 'HTML', ...Markup.inlineKeyboard([
-          ...((await ManagedGroup.find({ ownerId: ctx.from.id, accountId: { $in: ids }, canPost: true }).sort({ name: 1 }).limit(30).lean()).map(r => [
-            Markup.button.callback('☐ ' + safeTelegramText(r.name || r.telegramGroupId).slice(0, 25), 'group_target:' + r.accountId + ':' + r.telegramGroupId)
-          ])),
-          [Markup.button.callback('☑️ Use All Writable Groups', 'group_targets_all')],
-          [Markup.button.callback('🔄 Refresh Groups', 'group_refresh_targets')],
-          [Markup.button.callback('✉️ Continue', 'group_targets_done')],
-          [Markup.button.callback('⬅️ Back', 'feature_group')]
-        ])}
-      );
-    } catch {}
   });
 
   bot.action('group_targets_all', async ctx => {
