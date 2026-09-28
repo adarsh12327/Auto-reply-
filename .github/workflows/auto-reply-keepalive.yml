@@ -1,0 +1,15 @@
+name: Auto Reply Worker Keepalive
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Restart Auto Reply worker if needed
+        run: |
+          curl --fail --silent --show-error --max-time 60 \
+            "https://auto-reply-adarsh-patels-projects-6a25ba02.vercel.app/api/worker-keepalive"
