@@ -324,8 +324,8 @@ export async function sendAuthorizedMessage(client, target, message, username = 
   await client.sendMessage(entity, { message });
 }
 
-export async function sendGroupMessage(client, target, message) {
-  const entity = await resolveCampaignGroup(client, target);
+export async function sendGroupMessage(client, target, message, type = '', accessHash = '', username = '') {
+  const entity = await resolveCampaignGroup(client, target, type, accessHash, username);
   await client.sendMessage(entity, { message });
 }
 
