@@ -49,7 +49,26 @@ async function showAccountPicker(ctx, type) {
   const accounts = await Account.find({ ownerId: ctx.from.id, status: 'connected' }).sort({ createdAt: -1 }).lean();
   if (!accounts.length) return edit(ctx, '❌ <b>No connected Telegram accounts.</b>\n\nUse Add Account first.', simpleBackKeyboard());
   const key = type === 'dm' ? 'dm_flow' : 'group_flow';
-  await setUiState(ctx.from.id, key, { step: 'accounts', accountIds: [], type: type === 'group_schedule' ? 'group' : type, scheduled: type === 'group_schedule' });
+  const flowType = type === 'group_schedule' ? 'group' : type;
+
+  // If only one connected account exists, select it automatically.
+  // There is no reason to make the user open an account picker and press
+  // Continue for a single-account setup.
+  if (accounts.length === 1) {
+    const accountId = String(accounts[0]._id);
+    await setUiState(ctx.from.id, key, {
+      step: 'accounts',
+      accountIds: [accountId],
+      type: flowType,
+      scheduled: type === 'group_schedule'
+    });
+    if (flowType === 'dm') {
+      return showDmTargets(ctx);
+    }
+    return showGroupTargets(ctx);
+  }
+
+  await setUiState(ctx.from.id, key, { step: 'accounts', accountIds: [], type: flowType, scheduled: type === 'group_schedule' });
   await edit(ctx, '👤 <b>Select Account</b>\n\nChoose one, multiple, or all connected accounts.', picker(accounts, [], type === 'dm' ? 'dm_accounts_done' : 'group_accounts_done'));
 }
 
