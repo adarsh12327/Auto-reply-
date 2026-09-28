@@ -18,6 +18,7 @@
     "telegraf": "^4.16.3",
     "telegram": "^2.26.22",
     "qrcode": "^1.5.4",
-    "@vercel/sandbox": "^3.3.0"
+    "@vercel/sandbox": "^3.3.0",
+    "@vercel/functions": "^2.0.0"
   }
 }
