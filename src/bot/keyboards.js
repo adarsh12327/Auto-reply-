@@ -118,6 +118,7 @@ export const groupKeyboard = () => Markup.inlineKeyboard([
 export const campaignControlKeyboard = id => Markup.inlineKeyboard([
   [cb('⏸️ Pause', 'campaign_pause:' + id), cb('🛑 Stop', 'campaign_stop:' + id)],
   [cb('▶️ Resume', 'campaign_resume:' + id)],
+  [cb('📊 Refresh Status', 'campaign_status:' + id)],
   [cb('⬅️ Dashboard', 'main_menu')]
 ]);
 
