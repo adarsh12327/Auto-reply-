@@ -231,6 +231,8 @@ export function registerCampaignV2Handlers(bot, config) {
 
   bot.action(/^campaign_write:(dm|group)$/, async ctx => {
     await ctx.answerCbQuery();
+    // Prevent an old Auto Reply text-entry state from consuming campaign text.
+    await clearUiState(ctx.from.id, 'autoreply_flow');
     const key = ctx.match[1] === 'dm' ? 'dm_flow' : 'group_flow';
     const state = await getUiState(ctx.from.id, key);
     if (!state?.data) {
@@ -319,6 +321,8 @@ export function registerCampaignV2Handlers(bot, config) {
 
   bot.action('group_add', async ctx => {
     await ctx.answerCbQuery();
+    await clearUiState(ctx.from.id, 'dm_flow');
+    await clearUiState(ctx.from.id, 'autoreply_flow');
     await setUiState(ctx.from.id, 'group_flow', { step: 'add_group' });
     await edit(ctx,
       '➕ <b>ADD GROUP</b>\\n\\nSend the Group ID (example: <code>-1001234567890</code>) or the group @username.\\n\\nThe connected Telegram account must already be a member of the group.\\n\\n/cancel to stop.',
