@@ -1,4 +1,4 @@
-import { waitUntil } from '@vercel/functions';
+// Production deployment trigger: latest group/account picker fixes.\nimport { waitUntil } from '@vercel/functions';
 import { Markup } from 'telegraf';
 import { Api } from 'telegram';
 import { Account } from '../db.js';
