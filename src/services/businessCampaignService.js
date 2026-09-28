@@ -168,7 +168,10 @@ export async function processCampaignBatch(campaignId, encryptionKey, batchSize 
       }
     }
 
-    if (!stoppedForRateLimit) await sleep(maxDelay);
+    // Do not waste the configured delay after the final item in this batch.
+    if (!stoppedForRateLimit && item !== pending[pending.length - 1]) {
+      await sleep(maxDelay);
+    }
   }
 
   const remaining = await CampaignRecipient.countDocuments({ campaignId: campaign._id, status: 'pending' });
