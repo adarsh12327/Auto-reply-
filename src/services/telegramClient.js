@@ -195,7 +195,9 @@ export async function attachAutoReply(account, client) {
 }
 
 export async function canPost(client, target) {
-  const entity = await client.getEntity(target);
+  const entity = target && typeof target === 'object' && (target instanceof Api.Chat || target instanceof Api.Channel)
+    ? target
+    : await resolveCampaignGroup(client, target);
 
   if (!(entity instanceof Api.Channel)) return true;
 
@@ -280,6 +282,38 @@ async function resolveCampaignUser(client, target, username = '', accessHash = '
   );
 }
 
+async function resolveCampaignGroup(client, target) {
+  const targetId = String(target);
+
+  let peerMap = campaignPeerMaps.get(client);
+  if (!peerMap) {
+    peerMap = new Map();
+    for await (const dialog of client.iterDialogs({})) {
+      const entity = dialog.entity;
+      if (!entity) continue;
+      if (entity instanceof Api.Chat || entity instanceof Api.Channel) {
+        peerMap.set(String(entity.id), entity);
+      }
+    }
+    campaignPeerMaps.set(client, peerMap);
+  }
+
+  const entity = peerMap.get(targetId);
+  if (entity instanceof Api.Chat || entity instanceof Api.Channel) return entity;
+
+  try {
+    const direct = await client.getEntity(targetId);
+    if (direct instanceof Api.Chat || direct instanceof Api.Channel) {
+      peerMap.set(targetId, direct);
+      return direct;
+    }
+  } catch {}
+
+  throw new Error(
+    'Telegram group entity could not be resolved for target ' + targetId +
+    '. Refresh Groups first so the connected account has the group in its dialog cache.'
+  );
+}
 function peerMapSet(client, targetId, entity) {
   const map = campaignPeerMaps.get(client);
   if (map) map.set(String(targetId), entity);
@@ -287,6 +321,11 @@ function peerMapSet(client, targetId, entity) {
 
 export async function sendAuthorizedMessage(client, target, message, username = '', accessHash = '') {
   const entity = await resolveCampaignUser(client, target, username, accessHash);
+  await client.sendMessage(entity, { message });
+}
+
+export async function sendGroupMessage(client, target, message) {
+  const entity = await resolveCampaignGroup(client, target);
   await client.sendMessage(entity, { message });
 }
 
