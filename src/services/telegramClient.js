@@ -370,7 +370,9 @@ export async function ensureAccountClient(accountId, encryptionKey) {
     encryptionKey
   });
 
-  await attachAutoReply(account, client);
+  // Auto Reply is isolated in its dedicated worker/poller. Do not attach a
+  // second listener to campaign clients; otherwise campaign traffic and the
+  // auto-reply listener can race and produce cross-feature replies.
   return client;
 }
 
