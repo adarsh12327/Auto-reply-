@@ -6,6 +6,7 @@ const schema = new mongoose.Schema({
   telegramGroupId: { type: String, required: true },
   accessHash: { type: String, default: '' },
   accessHash: { type: String, default: '' },
+  accessHash: { type: String, default: '' },
   name: { type: String, default: '' },
   username: { type: String, default: '' },
   type: { type: String, enum: ['group', 'supergroup', 'channel'], required: true },
