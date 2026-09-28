@@ -96,10 +96,24 @@ async function showGroupTargets(ctx) {
   if (!ids.length) return edit(ctx, '❌ Select at least one account.', simpleBackKeyboard('feature_group'));
   // Continue must stay fast: use the already-synced group cache here.
   const rows = await ManagedGroup.find({ ownerId: ctx.from.id, accountId: { $in: ids }, canPost: true }).sort({ name: 1 }).limit(200).lean();
-  if (!rows.length) return edit(ctx, '🔎 <b>No writable groups found.</b>\n\nTap <b>🔄 Refresh Groups</b> first, then select the account again.', Markup.inlineKeyboard([[Markup.button.callback('🔄 Refresh Groups', 'group_refresh')],[Markup.button.callback('⬅️ Back', 'feature_group')]]), { parse_mode: 'HTML' });
-
   const state = await getUiState(ctx.from.id, 'group_flow');
-  const selected = new Set((state?.data?.targetKeys || []).map(String));
+  const availableKeys = new Set(rows.map(r => String(r.accountId) + ':' + String(r.telegramGroupId)));
+  const selected = new Set(
+    (state?.data?.targetKeys || []).map(String).filter(key => availableKeys.has(key))
+  );
+
+  // Drop stale selections when a group was removed or is no longer writable.
+  // This prevents a hidden/deleted group from being sent to during Continue.
+  if (!rows.length) {
+    await setUiState(ctx.from.id, 'group_flow', {
+      ...(state?.data || {}),
+      step: 'targets',
+      accountIds: ids,
+      targetKeys: [],
+      type: 'group'
+    });
+    return edit(ctx, '🔎 <b>No writable groups found.</b>\n\nTap <b>🔄 Refresh Groups</b> to scan the selected account again.', Markup.inlineKeyboard([[Markup.button.callback('🔄 Refresh Groups', 'group_refresh')],[Markup.button.callback('⬅️ Back', 'feature_group')]]), { parse_mode: 'HTML' });
+  }
   await setUiState(ctx.from.id, 'group_flow', {
     ...(state?.data || {}),
     step: 'targets',
