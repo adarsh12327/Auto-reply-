@@ -287,15 +287,20 @@ async function resolveCampaignGroup(client, target, type = '', accessHash = '', 
   const normalizedHash = String(accessHash || '').trim();
   const normalizedUsername = String(username || '').replace(/^@/, '').trim();
 
-  if (String(type) === 'group') {
-    return new Api.InputPeerChat({ chatId: BigInt(targetId) });
-  }
-
+  // Supergroups/channels are represented by Api.Channel and require an
+  // access hash. Some older cached records can have type="group" even though
+  // an access hash proves the target is a channel/supergroup. Prefer the
+  // access hash over the stored type so we never send a channel ID through
+  // InputPeerChat (which causes CHAT_ID_INVALID).
   if (normalizedHash) {
     return new Api.InputPeerChannel({
       channelId: BigInt(targetId),
       accessHash: BigInt(normalizedHash)
     });
+  }
+
+  if (String(type) === 'group') {
+    return new Api.InputPeerChat({ chatId: BigInt(targetId) });
   }
 
   if (normalizedUsername) {
