@@ -374,7 +374,7 @@ export function registerCampaignV2Handlers(bot, config) {
       for (const account of accounts) {
         try {
           const { client } = await restoreAccount(account._id, ctx.from.id, config.encryptionKey);
-          const target = input.replace(/^https?:\\/\\/(?:t\\.)?me\\//i, '').replace(/^@/, '').trim();
+          const target = input.replace(/^https?:\/\/(?:t\.)?me\//i, '').replace(/^@/, '').trim();
           const entity = await client.getEntity(/^[-]?\\d+$/.test(target) ? target : target);
 
           if (!(entity instanceof Api.Chat) && !(entity instanceof Api.Channel)) {
