@@ -35,6 +35,36 @@ export function createBot(config) {
     return next();
   });
 
+  // Normalize UI text across the entire bot. Some older handlers used the
+  // two-character sequence "\\\\n" and HTML tags without parse_mode, which
+  // Telegram displayed literally. Keep one professional rendering layer here.
+  bot.use(async (ctx, next) => {
+    const normalizeText = value => String(value ?? '').replace(/\\\\n/g, '\\n');
+    const needsHtml = value => /<\\/?(?:b|strong|i|u|s|code|pre)(?:\\s[^>]*)?>/i.test(String(value ?? ''));
+
+    const originalReply = ctx.reply?.bind(ctx);
+    if (originalReply) {
+      ctx.reply = async (text, extra = {}) => {
+        const normalized = normalizeText(text);
+        const options = { ...(extra || {}) };
+        if (!options.parse_mode && needsHtml(normalized)) options.parse_mode = 'HTML';
+        return originalReply(normalized, options);
+      };
+    }
+
+    const originalEdit = ctx.editMessageText?.bind(ctx);
+    if (originalEdit) {
+      ctx.editMessageText = async (text, extra = {}) => {
+        const normalized = normalizeText(text);
+        const options = { ...(extra || {}) };
+        if (!options.parse_mode && needsHtml(normalized)) options.parse_mode = 'HTML';
+        return originalEdit(normalized, options);
+      };
+    }
+
+    return next();
+  });
+
   bot.start(startHandler);
 
   bot.command('menu', async ctx => {
