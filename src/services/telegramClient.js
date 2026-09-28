@@ -282,38 +282,6 @@ async function resolveCampaignUser(client, target, username = '', accessHash = '
   );
 }
 
-async function resolveCampaignGroup(client, target) {
-  const targetId = String(target);
-
-  let peerMap = campaignPeerMaps.get(client);
-  if (!peerMap) {
-    peerMap = new Map();
-    for await (const dialog of client.iterDialogs({})) {
-      const entity = dialog.entity;
-      if (!entity) continue;
-      if (entity instanceof Api.Chat || entity instanceof Api.Channel) {
-        peerMap.set(String(entity.id), entity);
-      }
-    }
-    campaignPeerMaps.set(client, peerMap);
-  }
-
-  const entity = peerMap.get(targetId);
-  if (entity instanceof Api.Chat || entity instanceof Api.Channel) return entity;
-
-  try {
-    const direct = await client.getEntity(targetId);
-    if (direct instanceof Api.Chat || direct instanceof Api.Channel) {
-      peerMap.set(targetId, direct);
-      return direct;
-    }
-  } catch {}
-
-  throw new Error(
-    'Telegram group entity could not be resolved for target ' + targetId +
-    '. Refresh Groups first so the connected account has the group in its dialog cache.'
-  );
-}
 async function resolveCampaignGroup(client, target, type = '', accessHash = '', username = '') {
   const targetId = String(target);
   const normalizedHash = String(accessHash || '').trim();
