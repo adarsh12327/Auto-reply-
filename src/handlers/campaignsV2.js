@@ -19,12 +19,26 @@ function picker(accounts, selected, done) {
   return accountPickerKeyboard(accounts, selected, done);
 }
 
+function normalizeUiText(value) {
+  return String(value ?? '').replace(/\\n/g, '\n');
+}
+
+function htmlUiOptions(keyboard, text) {
+  const options = { ...(keyboard || {}) };
+  if (!options.parse_mode && /<\/?(?:b|strong|i|u|s|code|pre)(?:\s[^>]*)?>/i.test(text)) {
+    options.parse_mode = 'HTML';
+  }
+  return options;
+}
+
 async function edit(ctx, text, keyboard = simpleBackKeyboard()) {
   try {
+    const normalized = normalizeUiText(text);
+    const options = htmlUiOptions(keyboard, normalized);
     if (ctx.callbackQuery) {
-      await ctx.editMessageText(text, keyboard);
+      await ctx.editMessageText(normalized, options);
     } else {
-      await ctx.reply(text, keyboard);
+      await ctx.reply(normalized, options);
     }
   } catch (e) {
     if (!String(e?.description || e?.message || '').includes('message is not modified')) throw e;
