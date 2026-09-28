@@ -417,15 +417,38 @@ export function registerCampaignV2Handlers(bot, config) {
 
   bot.action('group_refresh', async ctx => {
     await ctx.answerCbQuery('Refreshing groups...');
-    const accounts = await Account.find({ ownerId: ctx.from.id, status: 'connected' }).lean();
+    const state = await getUiState(ctx.from.id, 'group_flow');
+    const selectedIds = (state?.data?.accountIds || []).map(String);
+    const accounts = selectedIds.length
+      ? await Account.find({ ownerId: ctx.from.id, status: 'connected', _id: { $in: selectedIds } }).lean()
+      : await Account.find({ ownerId: ctx.from.id, status: 'connected' }).lean();
+
+    if (!accounts.length) {
+      return edit(ctx, '❌ Connect a Telegram account first.', simpleBackKeyboard('feature_group'));
+    }
+
+    await edit(ctx, '🔄 <b>Refreshing Groups...</b>\\n\\nPlease wait...');
     let total = 0;
     for (const account of accounts) {
       try {
         const groups = await syncAccountGroups(ctx.from.id, account._id, config.encryptionKey);
         total += groups.length;
-      } catch {}
+      } catch (error) {
+        console.warn('Group refresh failed:', { accountId: String(account._id), error: error?.message });
+      }
     }
-    await edit(ctx, '🔄 <b>GROUP REFRESH COMPLETE</b>\n\nSynchronized groups: ' + total, simpleBackKeyboard('feature_group'));
+
+    if (selectedIds.length) {
+      await setUiState(ctx.from.id, 'group_flow', {
+        ...(state?.data || {}),
+        step: 'targets',
+        accountIds: selectedIds,
+        type: 'group'
+      });
+      return showGroupTargets(ctx);
+    }
+
+    await edit(ctx, '🔄 <b>GROUP REFRESH COMPLETE</b>\\n\\nSynchronized groups: ' + total, simpleBackKeyboard('feature_group'));
   });
 
   bot.action('group_select', async ctx => { await ctx.answerCbQuery(); await showAccountPicker(ctx, 'group'); });
