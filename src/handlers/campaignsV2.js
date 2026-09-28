@@ -284,8 +284,10 @@ export function registerCampaignV2Handlers(bot, config) {
     // Never keep the Telegram callback request open while sending messages.
     // A campaign can have several targets with a configured delay, so doing
     // the first batch inline makes the Continue/Confirm button look frozen.
-    void processCampaignBatch(campaign._id, config.encryptionKey, 8)
-      .catch(error => console.error('Initial campaign batch failed:', error));
+    waitUntil(
+      processCampaignBatch(campaign._id, config.encryptionKey, 8)
+        .catch(error => console.error('Initial campaign batch failed:', error))
+    );
   });
 
   bot.action(/^campaign_pause:(.+)$/, async ctx => {
