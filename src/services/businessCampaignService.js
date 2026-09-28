@@ -1,7 +1,8 @@
 import { BusinessCampaign, CampaignRecipient } from '../models/campaigns.js';
 import { BusinessRecipient } from '../models/recipients.js';
+import { ManagedGroup } from '../models/groups.js';
 import { Account } from '../db.js';
-import { ensureAccountClient, canPost, sendAuthorizedMessage, sendGroupMessage } from './telegramClient.js';
+import { ensureAccountClient, sendAuthorizedMessage, sendGroupMessage } from './telegramClient.js';
 import { getBusinessSettings } from './businessSettings.js';
 import { logger } from '../logger.js';
 
@@ -110,9 +111,25 @@ export async function processCampaignBatch(campaignId, encryptionKey, batchSize 
 
     try {
       const client = await ensureAccountClient(account._id, encryptionKey);
-      if (campaign.type === 'group' && !(await canPost(client, item.targetId))) {
-        await CampaignRecipient.updateOne({ _id: item._id, status: 'pending' }, { $set: { status: 'skipped', lastError: 'Posting permission unavailable' }, $inc: { attempts: 1 } });
-        await BusinessCampaign.updateOne({ _id: campaign._id }, { $inc: { 'stats.skipped': 1 } });
+      if (campaign.type === 'group') {
+        const group = await ManagedGroup.findOne({
+          ownerId: campaign.ownerId,
+          accountId: account._id,
+          telegramGroupId: item.targetId,
+          canPost: true
+        }).select('type accessHash username').lean();
+
+        if (!group) {
+          await CampaignRecipient.updateOne(
+            { _id: item._id, status: 'pending' },
+            { $set: { status: 'skipped', lastError: 'Group is no longer writable or has not been refreshed' }, $inc: { attempts: 1 } }
+          );
+          await BusinessCampaign.updateOne({ _id: campaign._id }, { $inc: { 'stats.skipped': 1 } });
+        } else {
+          await sendGroupMessage(client, item.targetId, campaign.message, group.type, group.accessHash || '', group.username || '');
+          await CampaignRecipient.updateOne({ _id: item._id, status: 'pending' }, { $set: { status: 'sent', sentAt: new Date() }, $inc: { attempts: 1 } });
+          await BusinessCampaign.updateOne({ _id: campaign._id }, { $inc: { 'stats.sent': 1 } });
+        }
       } else if (campaign.type === 'dm') {
         const recipient = await BusinessRecipient.findOne({
           ownerId: campaign.ownerId,
