@@ -39,8 +39,8 @@ export function createBot(config) {
   // two-character sequence "\\\\n" and HTML tags without parse_mode, which
   // Telegram displayed literally. Keep one professional rendering layer here.
   bot.use(async (ctx, next) => {
-    const normalizeText = value => String(value ?? '').replace(/\\\\n/g, '\\n');
-    const needsHtml = value => /<\\/?(?:b|strong|i|u|s|code|pre)(?:\\s[^>]*)?>/i.test(String(value ?? ''));
+    const normalizeText = value => String(value ?? '').replace(/\\n/g, '\n');
+    const needsHtml = value => /<\/?(?:b|strong|i|u|s|code|pre)(?:\s[^>]*)?>/i.test(String(value ?? ''));
 
     const originalReply = ctx.reply?.bind(ctx);
     if (originalReply) {
