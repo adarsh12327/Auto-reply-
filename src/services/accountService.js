@@ -62,6 +62,7 @@ export async function syncAccountGroups(ownerId, accountId, encryptionKey) {
             $set: {
               name: group.name || '',
               username: group.username || '',
+              accessHash: group.accessHash || '',
               type: group.type || 'group',
               membershipStatus: 'member',
               canPost: writableIds.has(String(group.id)),
