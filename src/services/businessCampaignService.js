@@ -1,7 +1,7 @@
 import { BusinessCampaign, CampaignRecipient } from '../models/campaigns.js';
 import { BusinessRecipient } from '../models/recipients.js';
 import { Account } from '../db.js';
-import { ensureAccountClient, canPost, sendAuthorizedMessage } from './telegramClient.js';
+import { ensureAccountClient, canPost, sendAuthorizedMessage, sendGroupMessage } from './telegramClient.js';
 import { getBusinessSettings } from './businessSettings.js';
 import { logger } from '../logger.js';
 
@@ -130,8 +130,7 @@ export async function processCampaignBatch(campaignId, encryptionKey, batchSize 
           await BusinessCampaign.updateOne({ _id: campaign._id }, { $inc: { 'stats.sent': 1 } });
         }
       } else {
-        const entity = await client.getEntity(item.targetId);
-        await client.sendMessage(entity, { message: campaign.message });
+        await sendGroupMessage(client, item.targetId, campaign.message);
         await CampaignRecipient.updateOne({ _id: item._id, status: 'pending' }, { $set: { status: 'sent', sentAt: new Date() }, $inc: { attempts: 1 } });
         await BusinessCampaign.updateOne({ _id: campaign._id }, { $inc: { 'stats.sent': 1 } });
       }
