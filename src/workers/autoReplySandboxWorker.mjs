@@ -195,7 +195,16 @@ async function attachAccount(account) {
 
         if (!claim) return;
 
-        await client.sendMessage(sender, { message: text });
+        try {
+          await client.sendMessage(sender, { message: text });
+        } catch (error) {
+          await AutoReplyEvent.deleteOne({
+            accountId: account._id,
+            senderId,
+            lastMessageId: incomingId
+          }).catch(() => {});
+          throw error;
+        }
 
         console.log(JSON.stringify({
           level: 'info',
