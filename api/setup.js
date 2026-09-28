@@ -13,9 +13,7 @@ export default async function handler(req, res) {
     // Always prefer the stable production alias. VERCEL_URL can point to
     // an individual deployment URL, which would make Telegram stay pinned
     // to an old deployment after the next redeploy.
-    const productionHost =
-      process.env.VERCEL_PROJECT_PRODUCTION_URL ||
-      'auto-reply-adarsh-patels-projects-6a25ba02.vercel.app';
+    const productionHost = 'auto-reply-adarsh-patels-projects-6a25ba02.vercel.app';
 
     const webhookUrl = 'https://' + productionHost + '/api/webhook';
     const bot = new Telegraf(botToken);
