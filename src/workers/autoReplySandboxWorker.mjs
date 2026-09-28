@@ -155,59 +155,54 @@ async function attachAccount(account) {
         if (!incomingId || !senderId) return;
 
         const now = Date.now();
-        const eventRecord = await AutoReplyEvent.findOne({
-          accountId: account._id,
-          senderId
-        }).lean();
-
-        if (eventRecord?.lastMessageId === incomingId) {
-          console.log(JSON.stringify({
-            level: 'info',
-            message: 'Auto Reply skipped: message already processed',
-            accountId: id,
-            senderId
-          }));
-          return;
-        }
-
         const cooldown = Math.max(0, Number(setting.cooldownMs) || 60 * 60 * 1000);
-        const cooldownActive =
-          eventRecord?.repliedAt &&
-          now - new Date(eventRecord.repliedAt).getTime() < cooldown;
+        const cutoff = new Date(now - cooldown);
 
-        if (cooldownActive) {
-          console.log(JSON.stringify({
-            level: 'info',
-            message: 'Auto Reply skipped: cooldown active',
-            accountId: id,
-            senderId
-          }));
-          await AutoReplyEvent.findOneAndUpdate(
-            { accountId: account._id, senderId },
+        // Atomically claim the sender before sending. This prevents multiple
+        // concurrent Telegram updates from sending duplicate auto replies.
+        let claim;
+        try {
+          claim = await AutoReplyEvent.findOneAndUpdate(
+            {
+              accountId: account._id,
+              senderId,
+              $or: [
+                { repliedAt: { $lte: cutoff } },
+                { repliedAt: { $exists: false } }
+              ]
+            },
             {
               $set: {
                 ownerId: account.ownerId,
+                repliedAt: new Date(now),
                 lastMessageId: incomingId
               }
             },
-            { upsert: true }
+            { upsert: true, new: true }
           );
-          return;
+        } catch (error) {
+          if (error?.code === 11000) {
+            console.log(JSON.stringify({
+              level: 'info',
+              message: 'Auto Reply skipped: cooldown already claimed',
+              accountId: id,
+              senderId
+            }));
+            return;
+          }
+          throw error;
         }
+
+        if (!claim) return;
 
         await client.sendMessage(sender, { message: text });
 
-        await AutoReplyEvent.findOneAndUpdate(
-          { accountId: account._id, senderId },
-          {
-            $set: {
-              ownerId: account.ownerId,
-              repliedAt: new Date(),
-              lastMessageId: incomingId
-            }
-          },
-          { upsert: true }
-        );
+        console.log(JSON.stringify({
+          level: 'info',
+          message: 'Instant auto reply sent',
+          accountId: id,
+          senderId
+        }));
 
         console.log(JSON.stringify({
           level: 'info',
