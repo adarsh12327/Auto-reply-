@@ -1,5 +1,6 @@
 import { waitUntil } from '@vercel/functions';
 import { Markup } from 'telegraf';
+import { Api } from 'telegram';
 import { Account } from '../db.js';
 import { MessageTemplate } from '../models/messages.js';
 import { BusinessRecipient } from '../models/recipients.js';
@@ -8,7 +9,7 @@ import { BusinessCampaign, CampaignRecipient } from '../models/campaigns.js';
 import { setUiState, getUiState, clearUiState } from '../services/uiState.js';
 import { getBusinessSettings } from '../services/businessSettings.js';
 import { syncAuthorizedRecipients } from '../services/recipientService.js';
-import { syncAccountGroups } from '../services/accountService.js';
+import { syncAccountGroups, restoreAccount } from '../services/accountService.js';
 import { createCampaign, processCampaignBatch, pauseBusinessCampaign, resumeBusinessCampaign, stopBusinessCampaign } from '../services/businessCampaignService.js';
 import { accountPickerKeyboard, simpleBackKeyboard, campaignControlKeyboard, messageInputKeyboard } from '../bot/keyboards.js';
 
@@ -278,10 +279,13 @@ export function registerCampaignV2Handlers(bot, config) {
     });
 
     await clearUiState(ctx.from.id, key);
-    await edit(ctx, '🚀 <b>Campaign Started</b>\n\nCampaign ID: ' + campaign._id + '\n\nPreparing the first delivery batch...', campaignControlKeyboard(campaign._id));
-    const result = await processCampaignBatch(campaign._id, config.encryptionKey, 8);
-    const c = result.campaign || await BusinessCampaign.findById(campaign._id).lean();
-    await edit(ctx, formatCampaign(c, result.remaining), campaignControlKeyboard(campaign._id));
+    await edit(ctx, '🚀 <b>Campaign Started</b>\n\nCampaign ID: ' + campaign._id + '\n\nDelivery is running in the background. You can use Pause/Stop anytime.', campaignControlKeyboard(campaign._id));
+
+    // Never keep the Telegram callback request open while sending messages.
+    // A campaign can have several targets with a configured delay, so doing
+    // the first batch inline makes the Continue/Confirm button look frozen.
+    void processCampaignBatch(campaign._id, config.encryptionKey, 8)
+      .catch(error => console.error('Initial campaign batch failed:', error));
   });
 
   bot.action(/^campaign_pause:(.+)$/, async ctx => {
@@ -311,6 +315,15 @@ export function registerCampaignV2Handlers(bot, config) {
     if (c) await edit(ctx, formatCampaign(c), simpleBackKeyboard());
   });
 
+  bot.action('group_add', async ctx => {
+    await ctx.answerCbQuery();
+    await setUiState(ctx.from.id, 'group_flow', { step: 'add_group' });
+    await edit(ctx,
+      '➕ <b>ADD GROUP</b>\\n\\nSend the Group ID (example: <code>-1001234567890</code>) or the group @username.\\n\\nThe connected Telegram account must already be a member of the group.\\n\\n/cancel to stop.',
+      messageInputKeyboard('feature_group')
+    );
+  });
+
   bot.action('group_refresh', async ctx => {
     await ctx.answerCbQuery('Refreshing groups...');
     const accounts = await Account.find({ ownerId: ctx.from.id, status: 'connected' }).lean();
@@ -334,6 +347,88 @@ export function registerCampaignV2Handlers(bot, config) {
   });
 
   bot.on('text', async (ctx, next) => {
+    const addState = await getUiState(ctx.from.id, 'group_flow');
+    if (addState?.data?.step === 'add_group') {
+      const input = String(ctx.message.text || '').trim();
+      if (input === '/cancel') {
+        await clearUiState(ctx.from.id, 'group_flow');
+        return ctx.reply('❌ Group add cancelled.', simpleBackKeyboard('feature_group'));
+      }
+      if (!input) return ctx.reply('❌ Enter a Group ID or @username.');
+
+      const accounts = await Account.find({ ownerId: ctx.from.id, status: 'connected' })
+        .sort({ createdAt: -1 }).lean();
+      if (!accounts.length) {
+        await clearUiState(ctx.from.id, 'group_flow');
+        return ctx.reply('❌ Connect a Telegram account first.', simpleBackKeyboard('feature_group'));
+      }
+
+      let added = 0;
+      let lastError = '';
+      for (const account of accounts) {
+        try {
+          const { client } = await restoreAccount(account._id, ctx.from.id, config.encryptionKey);
+          const target = input.replace(/^https?:\\/\\/(?:t\\.)?me\\//i, '').replace(/^@/, '').trim();
+          const entity = await client.getEntity(/^[-]?\\d+$/.test(target) ? target : target);
+
+          if (!(entity instanceof Api.Chat) && !(entity instanceof Api.Channel)) {
+            throw new Error('That target is not a Telegram group.');
+          }
+
+          const isSupergroup = entity instanceof Api.Channel && Boolean(entity.megagroup);
+          const canPostNow = await (async () => {
+            try {
+              if (entity instanceof Api.Chat) return true;
+              const permissions = await client.invoke(new Api.channels.GetParticipant({
+                channel: entity,
+                participant: await client.getMe()
+              }));
+              return Boolean(
+                permissions.participant?.adminRights?.postMessages ||
+                permissions.participant?.adminRights?.postStories
+              );
+            } catch {
+              return false;
+            }
+          })();
+
+          await ManagedGroup.findOneAndUpdate(
+            { ownerId: ctx.from.id, accountId: account._id, telegramGroupId: String(entity.id) },
+            { $set: {
+              name: String(entity.title || input),
+              username: entity.username ? String(entity.username) : '',
+              accessHash: entity.accessHash != null ? String(entity.accessHash) : '',
+              type: isSupergroup ? 'supergroup' : 'group',
+              membershipStatus: 'member',
+              canPost: canPostNow,
+              lastSyncedAt: new Date()
+            }},
+            { upsert: true, new: true }
+          );
+          added += 1;
+        } catch (error) {
+          lastError = error?.message || String(error);
+        }
+      }
+
+      await clearUiState(ctx.from.id, 'group_flow');
+      if (!added) {
+        return ctx.reply(
+          '❌ Group add failed.\\n\\n' +
+          'Use the exact Group ID or @username, and make sure the selected Telegram account is already a member.\\n\\n' +
+          (lastError ? 'Reason: ' + lastError.slice(0, 300) : ''),
+          simpleBackKeyboard('feature_group')
+        );
+      }
+
+      return ctx.reply(
+        '✅ <b>Group Added</b>\\n\\n' +
+        'Added for ' + added + ' connected account(s).\\n' +
+        'Now open <b>Group Message → Select Groups</b> and continue.',
+        { parse_mode: 'HTML', ...simpleBackKeyboard('feature_group') }
+      );
+    }
+
     const scheduleState = await getUiState(ctx.from.id, 'group_flow');
     if (scheduleState?.data?.step === 'schedule_interval') {
       const minutes = Number(String(ctx.message.text || '').trim());
