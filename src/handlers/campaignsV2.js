@@ -317,7 +317,7 @@ export function registerCampaignV2Handlers(bot, config) {
     });
 
     await clearUiState(ctx.from.id, key);
-    await edit(ctx, '🚀 <b>Campaign Started</b>\n\nCampaign ID: ' + campaign._id + '\n\nDelivery is running in the background. You can use Pause/Stop anytime.', campaignControlKeyboard(campaign._id));
+    await edit(ctx, '🚀 <b>Campaign Started</b>\n\nCampaign ID: ' + campaign._id + '\n\n' + formatCampaign(campaign, targetPairs.length) + '\n\nDelivery is running in the background.', campaignControlKeyboard(campaign._id));
 
     // Never keep the Telegram callback request open while sending messages.
     // A campaign can have several targets with a configured delay, so doing
