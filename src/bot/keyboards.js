@@ -107,7 +107,7 @@ export const templateManageKeyboard = id => Markup.inlineKeyboard([
 ]);
 
 export const groupKeyboard = () => Markup.inlineKeyboard([
-  [cb('🔄 Refresh Groups', 'group_refresh')],
+  [cb('🔄 Refresh Groups', 'group_refresh'), cb('➕ Add Group', 'group_add')],
   [cb('☑️ Select Groups', 'group_select')],
   [cb('📨 New Group Campaign', 'group_new')],
   [cb('⏰ Auto Start', 'group_autostart')],
