@@ -212,13 +212,6 @@ async function attachAccount(account) {
           accountId: id,
           senderId
         }));
-
-        console.log(JSON.stringify({
-          level: 'info',
-          message: 'Instant auto reply sent',
-          accountId: id,
-          senderId
-        }));
       } catch (error) {
         console.warn(JSON.stringify({
           level: 'warn',
