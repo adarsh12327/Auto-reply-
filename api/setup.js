@@ -14,7 +14,6 @@ export default async function handler(req, res) {
     // an individual deployment URL, which would make Telegram stay pinned
     // to an old deployment after the next redeploy.
     const productionHost =
-      process.env.WEBHOOK_URL?.replace(/^https?:\/\//, '').replace(/\/$/, '') ||
       process.env.VERCEL_PROJECT_PRODUCTION_URL ||
       'auto-reply-adarsh-patels-projects-6a25ba02.vercel.app';
 
