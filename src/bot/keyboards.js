@@ -115,12 +115,19 @@ export const groupKeyboard = () => Markup.inlineKeyboard([
   [cb('⬅️ Dashboard', 'main_menu')]
 ]);
 
-export const campaignControlKeyboard = id => Markup.inlineKeyboard([
-  [cb('⏸️ Pause', 'campaign_pause:' + id), cb('🛑 Stop', 'campaign_stop:' + id)],
-  [cb('▶️ Resume', 'campaign_resume:' + id)],
-  [cb('📊 Refresh Status', 'campaign_status:' + id)],
-  [cb('⬅️ Dashboard', 'main_menu')]
-]);
+export const campaignControlKeyboard = (id, status = '') => {
+  const normalized = String(status || '').toLowerCase();
+  const rows = [];
+  if (normalized === 'draft') {
+    rows.push([cb('▶️ Start Campaign', 'campaign_start:' + id), cb('🛑 Stop', 'campaign_stop:' + id)]);
+  } else {
+    rows.push([cb('⏸️ Pause', 'campaign_pause:' + id), cb('🛑 Stop', 'campaign_stop:' + id)]);
+    rows.push([cb('▶️ Resume', 'campaign_resume:' + id)]);
+  }
+  rows.push([cb('📊 Refresh Status', 'campaign_status:' + id)]);
+  rows.push([cb('⬅️ Dashboard', 'main_menu')]);
+  return Markup.inlineKeyboard(rows);
+};
 
 export const messageInputKeyboard = back => Markup.inlineKeyboard([
   [cb('❌ Cancel', back)]
