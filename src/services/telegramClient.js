@@ -220,6 +220,7 @@ export async function canPost(client, target) {
 }
 
 const campaignPeerMaps = new WeakMap();
+const campaignGroupMaps = new WeakMap();
 
 async function resolveCampaignUser(client, target, username = '', accessHash = '') {
   const targetId = String(target);
@@ -284,36 +285,57 @@ async function resolveCampaignUser(client, target, username = '', accessHash = '
 
 async function resolveCampaignGroup(client, target, type = '', accessHash = '', username = '') {
   const targetId = String(target);
-  const normalizedHash = String(accessHash || '').trim();
   const normalizedUsername = String(username || '').replace(/^@/, '').trim();
+  const normalizedHash = String(accessHash || '').trim();
 
-  // Supergroups/channels are represented by Api.Channel and require an
-  // access hash. Some older cached records can have type="group" even though
-  // an access hash proves the target is a channel/supergroup. Prefer the
-  // access hash over the stored type so we never send a channel ID through
-  // InputPeerChat (which causes CHAT_ID_INVALID).
-  if (normalizedHash) {
-    return new Api.InputPeerChannel({
-      channelId: BigInt(targetId),
-      accessHash: BigInt(normalizedHash)
-    });
+  // Prefer the live entity from the connected account's dialogs. Stored
+  // access hashes can become stale; the live entity has current peer data.
+  let groupMap = campaignGroupMaps.get(client);
+  if (!groupMap) {
+    groupMap = new Map();
+    for await (const dialog of client.iterDialogs({})) {
+      const entity = dialog.entity;
+      if (!entity) continue;
+      const isBasicGroup = entity instanceof Api.Chat;
+      const isSupergroup = entity instanceof Api.Channel && Boolean(entity.megagroup);
+      if (!isBasicGroup && !isSupergroup) continue;
+      groupMap.set(String(entity.id), entity);
+      if (entity.username) groupMap.set(`@${String(entity.username).toLowerCase()}`, entity);
+    }
+    campaignGroupMaps.set(client, groupMap);
   }
 
-  if (String(type) === 'group') {
-    return new Api.InputPeerChat({ chatId: BigInt(targetId) });
-  }
+  const byId = groupMap.get(targetId);
+  if (byId instanceof Api.Chat || byId instanceof Api.Channel) return byId;
 
   if (normalizedUsername) {
-    const entity = await client.getEntity(normalizedUsername);
-    if (entity instanceof Api.Channel || entity instanceof Api.Chat) return entity;
+    const cachedByUsername = groupMap.get(`@${normalizedUsername.toLowerCase()}`);
+    if (cachedByUsername instanceof Api.Chat || cachedByUsername instanceof Api.Channel) return cachedByUsername;
+    try {
+      const byUsername = await client.getEntity(normalizedUsername);
+      if (byUsername instanceof Api.Channel || byUsername instanceof Api.Chat) {
+        groupMap.set(targetId, byUsername);
+        return byUsername;
+      }
+    } catch {}
   }
 
+  // Fallback for a group not present in dialogs.
+  if (normalizedHash) {
+    try {
+      return new Api.InputPeerChannel({
+        channelId: BigInt(targetId),
+        accessHash: BigInt(normalizedHash)
+      });
+    } catch {}
+  }
+  if (String(type) === 'group') return new Api.InputPeerChat({ chatId: BigInt(targetId) });
+
   throw new Error(
-    'Telegram group peer data is missing for target ' + targetId +
-    '. Refresh Groups once to update the access hash.'
+    `Telegram group peer could not be resolved for target ${targetId}. ` +
+    'Refresh Groups while the account is connected and make sure the account is a member.'
   );
 }
-
 function peerMapSet(client, targetId, entity) {
   const map = campaignPeerMaps.get(client);
   if (map) map.set(String(targetId), entity);
