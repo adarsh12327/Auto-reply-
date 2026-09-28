@@ -368,7 +368,8 @@ export function registerCampaignV2Handlers(bot, config) {
         const [accountId, ...rest] = String(x).split(':');
         return { accountId, targetId: rest.join(':') };
       }),
-      delayMs: settings.defaultCampaignDelayMs
+      delayMs: settings.defaultCampaignDelayMs,
+      status: 'running'
     });
 
     await clearUiState(ctx.from.id, key);
