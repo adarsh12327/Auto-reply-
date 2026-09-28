@@ -314,6 +314,33 @@ async function resolveCampaignGroup(client, target) {
     '. Refresh Groups first so the connected account has the group in its dialog cache.'
   );
 }
+async function resolveCampaignGroup(client, target, type = '', accessHash = '', username = '') {
+  const targetId = String(target);
+  const normalizedHash = String(accessHash || '').trim();
+  const normalizedUsername = String(username || '').replace(/^@/, '').trim();
+
+  if (String(type) === 'group') {
+    return new Api.InputPeerChat({ chatId: BigInt(targetId) });
+  }
+
+  if (normalizedHash) {
+    return new Api.InputPeerChannel({
+      channelId: BigInt(targetId),
+      accessHash: BigInt(normalizedHash)
+    });
+  }
+
+  if (normalizedUsername) {
+    const entity = await client.getEntity(normalizedUsername);
+    if (entity instanceof Api.Channel || entity instanceof Api.Chat) return entity;
+  }
+
+  throw new Error(
+    'Telegram group peer data is missing for target ' + targetId +
+    '. Refresh Groups once to update the access hash.'
+  );
+}
+
 function peerMapSet(client, targetId, entity) {
   const map = campaignPeerMaps.get(client);
   if (map) map.set(String(targetId), entity);
@@ -398,6 +425,7 @@ export async function listWritableGroups(accountId) {
       id: target,
       title: String(dialog.title || entity.title || 'Untitled group'),
       username: entity.username ? String(entity.username) : '',
+      accessHash: entity.accessHash != null ? String(entity.accessHash) : '',
       type: isSupergroup ? 'supergroup' : 'group'
     });
   }
@@ -495,7 +523,8 @@ export async function listAllGroups(accountId) {
       id: String(entity.id),
       name: String(dialog.title || entity.title || 'Untitled group'),
       username: entity.username ? String(entity.username) : '',
-      type: 'group'
+      accessHash: entity.accessHash != null ? String(entity.accessHash) : '',
+      type: entity instanceof Api.Channel && entity.megagroup ? 'supergroup' : 'group'
     });
   }
 
