@@ -385,12 +385,29 @@ export function registerCampaignV2Handlers(bot, config) {
     );
   });
 
+  bot.action(/^campaign_start:(.+)$/, async ctx => {
+    await ctx.answerCbQuery('Starting campaign...');
+    const campaign = await BusinessCampaign.findOneAndUpdate(
+      { _id: ctx.match[1], ownerId: ctx.from.id, status: 'draft' },
+      { $set: { status: 'running', lastError: '' } },
+      { new: true }
+    );
+    if (!campaign) return edit(ctx, '❌ Campaign not found or it is no longer in draft state.');
+    waitUntil(
+      processCampaignBatch(campaign._id, config.encryptionKey, 8).catch(error => {
+        console.error('Background campaign start failed', { campaignId: String(campaign._id), error: error?.message });
+      })
+    );
+    const remaining = await CampaignRecipient.countDocuments({ campaignId: campaign._id, status: 'pending' });
+    await edit(ctx, formatCampaign(campaign, remaining), campaignControlKeyboard(campaign._id, campaign.status));
+  });
+
   bot.action(/^campaign_status:(.+)$/, async ctx => {
     await ctx.answerCbQuery('Refreshing status...');
     const campaign = await BusinessCampaign.findOne({ _id: ctx.match[1], ownerId: ctx.from.id }).lean();
     if (!campaign) return edit(ctx, '❌ Campaign not found.', simpleBackKeyboard('feature_group'));
     const remaining = await CampaignRecipient.countDocuments({ campaignId: campaign._id, status: 'pending' });
-    await edit(ctx, formatCampaign(campaign, remaining), campaignControlKeyboard(campaign._id));
+    await edit(ctx, formatCampaign(campaign, remaining), campaignControlKeyboard(campaign._id, campaign.status));
   });
 
   bot.action(/^campaign_pause:(.+)$/, async ctx => {
