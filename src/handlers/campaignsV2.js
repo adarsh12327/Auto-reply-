@@ -1,3 +1,4 @@
+import { waitUntil } from '@vercel/functions';
 import { Markup } from 'telegraf';
 import { Account } from '../db.js';
 import { MessageTemplate } from '../models/messages.js';
@@ -293,8 +294,15 @@ export function registerCampaignV2Handlers(bot, config) {
     await ctx.answerCbQuery('Resuming...');
     const c = await resumeBusinessCampaign(ctx.from.id, ctx.match[1]);
     if (!c) return edit(ctx, '❌ Campaign not found or cannot be resumed.');
-    const result = await processCampaignBatch(c._id, config.encryptionKey, 8);
-    await edit(ctx, formatCampaign(result.campaign || c, result.remaining), campaignControlKeyboard(c._id));
+    waitUntil(
+      processCampaignBatch(c._id, config.encryptionKey, 8).catch(error => {
+        console.error('Background campaign resume failed', {
+          campaignId: String(c._id),
+          error: error?.message
+        });
+      })
+    );
+    await edit(ctx, '▶️ <b>Campaign resumed</b>\n\nDelivery is continuing in the background.', campaignControlKeyboard(c._id));
   });
 
   bot.action(/^campaign_stop:(.+)$/, async ctx => {
