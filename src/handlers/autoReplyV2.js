@@ -154,6 +154,7 @@ export function registerAutoReplyV2Handlers(bot, config) {
 
   bot.action(/^autoreply_write:(.+)$/, async ctx => {
     await ctx.answerCbQuery();
+    await UiState.deleteMany({ ownerId: ctx.from.id, key: { $in: ['dm_flow', 'group_flow'] } });
     const accountId = ctx.match[1];
     await UiState.findOneAndUpdate(
       { ownerId: ctx.from.id, key },
