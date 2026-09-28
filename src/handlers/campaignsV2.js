@@ -328,6 +328,14 @@ export function registerCampaignV2Handlers(bot, config) {
     );
   });
 
+  bot.action(/^campaign_status:(.+)$/, async ctx => {
+    await ctx.answerCbQuery('Refreshing status...');
+    const campaign = await BusinessCampaign.findOne({ _id: ctx.match[1], ownerId: ctx.from.id }).lean();
+    if (!campaign) return edit(ctx, '❌ Campaign not found.', simpleBackKeyboard('feature_group'));
+    const remaining = await CampaignRecipient.countDocuments({ campaignId: campaign._id, status: 'pending' });
+    await edit(ctx, formatCampaign(campaign, remaining), campaignControlKeyboard(campaign._id));
+  });
+
   bot.action(/^campaign_pause:(.+)$/, async ctx => {
     await ctx.answerCbQuery('Pausing...');
     const c = await pauseBusinessCampaign(ctx.from.id, ctx.match[1]);
