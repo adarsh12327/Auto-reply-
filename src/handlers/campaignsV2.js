@@ -77,22 +77,41 @@ async function showGroupTargets(ctx) {
   const ids = await selectedAccounts(ctx.from.id, 'group_flow');
   if (!ids.length) return edit(ctx, '❌ Select at least one account.', simpleBackKeyboard('feature_group'));
   // Continue must stay fast: use the already-synced group cache here.
-  // Full Telegram group synchronization is handled by Refresh Groups instead
-  // of blocking the Continue callback for a potentially long MTProto request.
   const rows = await ManagedGroup.find({ ownerId: ctx.from.id, accountId: { $in: ids }, canPost: true }).sort({ name: 1 }).limit(200).lean();
   if (!rows.length) return edit(ctx, '🔎 <b>No writable groups found.</b>\n\nTap <b>🔄 Refresh Groups</b> first, then select the account again.', Markup.inlineKeyboard([[Markup.button.callback('🔄 Refresh Groups', 'group_refresh')],[Markup.button.callback('⬅️ Back', 'feature_group')]]), { parse_mode: 'HTML' });
+
   const state = await getUiState(ctx.from.id, 'group_flow');
-  await setUiState(ctx.from.id, 'group_flow', { ...(state?.data || {}), step: 'targets', accountIds: ids, targetKeys: [], type: 'group' });
-  const buttons = rows.slice(0, 30).map(r => [
-    Markup.button.callback('☐ ' + safeTelegramText(r.name || r.telegramGroupId).slice(0, 25), 'group_target:' + r.accountId + ':' + r.telegramGroupId)
-  ]);
+  const selected = new Set((state?.data?.targetKeys || []).map(String));
+  await setUiState(ctx.from.id, 'group_flow', {
+    ...(state?.data || {}),
+    step: 'targets',
+    accountIds: ids,
+    targetKeys: [...selected],
+    type: 'group'
+  });
+
+  const buttons = rows.slice(0, 30).map(r => {
+    const key = String(r.accountId) + ':' + String(r.telegramGroupId);
+    const isSelected = selected.has(key);
+    const label = (isSelected ? '☑️ ' : '☐ ') +
+      safeTelegramText(r.name || r.telegramGroupId).slice(0, 25) +
+      (isSelected ? ' [SELECTED]' : '');
+    return [Markup.button.callback(label, 'group_target:' + r.accountId + ':' + r.telegramGroupId)];
+  });
+
   buttons.push([Markup.button.callback('☑️ Use All Writable Groups', 'group_targets_all')]);
   buttons.push([Markup.button.callback('🔄 Refresh Groups', 'group_refresh_targets')]);
-  buttons.push([Markup.button.callback('✉️ Continue', 'group_targets_done')]);
+  buttons.push([Markup.button.callback('✉️ Continue (' + selected.size + ' selected)', 'group_targets_done')]);
   buttons.push([Markup.button.callback('⬅️ Back', 'feature_group')]);
-  await edit(ctx, '👥 <b>WRITABLE GROUPS</b>\n\nFound: ' + rows.length + '\n\nSelect groups or use all writable groups.', Markup.inlineKeyboard(buttons));
-}
 
+  await edit(
+    ctx,
+    '👥 <b>WRITABLE GROUPS</b>\n\nFound: ' + rows.length +
+      '\nSelected: ' + selected.size +
+      '\n\n☑️ = already selected\nTap a selected group again to unselect.',
+    Markup.inlineKeyboard(buttons)
+  );
+}
 async function showMessageChoice(ctx, type) {
   const key = type === 'dm' ? 'dm_flow' : 'group_flow';
   const state = await getUiState(ctx.from.id, key);
@@ -217,14 +236,10 @@ export function registerCampaignV2Handlers(bot, config) {
     const state = await getUiState(ctx.from.id, 'group_flow');
     if (!state) return;
     const key = String(ctx.match[1]) + ':' + String(ctx.match[2]);
-    const set = new Set(state.data.targetKeys || []);
+    const set = new Set((state.data.targetKeys || []).map(String));
     set.has(key) ? set.delete(key) : set.add(key);
     await setUiState(ctx.from.id, 'group_flow', { ...state.data, targetKeys: [...set] });
-    await edit(ctx, '👥 <b>WRITABLE GROUPS</b>\n\nSelected: ' + set.size, Markup.inlineKeyboard([
-      [Markup.button.callback('☑️ Use All Writable Groups', 'group_targets_all')],
-      [Markup.button.callback('✉️ Continue', 'group_targets_done')],
-      [Markup.button.callback('⬅️ Back', 'feature_group')]
-    ]));
+    await showGroupTargets(ctx);
   });
 
   bot.action('group_refresh_targets', async ctx => {
