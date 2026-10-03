@@ -9,6 +9,7 @@ import { BusinessCampaign, CampaignRecipient } from '../models/campaigns.js';
 import { setUiState, getUiState, clearUiState } from '../services/uiState.js';
 import { getBusinessSettings } from '../services/businessSettings.js';
 import { syncAuthorizedRecipients } from '../services/recipientService.js';
+import { listPersonalDialogs } from '../services/telegramClient.js';
 import { syncAccountGroups, restoreAccount } from '../services/accountService.js';
 import { createCampaign, processCampaignBatch, pauseBusinessCampaign, resumeBusinessCampaign, stopBusinessCampaign } from '../services/businessCampaignService.js';
 import { accountPickerKeyboard, simpleBackKeyboard, campaignControlKeyboard, messageInputKeyboard } from '../bot/keyboards.js';
@@ -52,8 +53,6 @@ async function showAccountPicker(ctx, type) {
   const flowType = type === 'group_schedule' ? 'group' : type;
 
   // If only one connected account exists, select it automatically.
-  // There is no reason to make the user open an account picker and press
-  // Continue for a single-account setup.
   if (accounts.length === 1) {
     const accountId = String(accounts[0]._id);
     await setUiState(ctx.from.id, key, {
@@ -62,19 +61,94 @@ async function showAccountPicker(ctx, type) {
       type: flowType,
       scheduled: type === 'group_schedule'
     });
-    if (flowType === 'dm') {
-      return showDmTargets(ctx);
-    }
+    if (flowType === 'dm') return showDmTargets(ctx);
+    if (flowType === 'group_add') return showGroupAddTargets(ctx);
     return showGroupTargets(ctx);
   }
 
-  await setUiState(ctx.from.id, key, { step: 'accounts', accountIds: [], type: flowType, scheduled: type === 'group_schedule' });
-  await edit(ctx, '👤 <b>Select Account</b>\n\nChoose one, multiple, or all connected accounts.', picker(accounts, [], type === 'dm' ? 'dm_accounts_done' : 'group_accounts_done'));
+  await setUiState(ctx.from.id, key, {
+    step: 'accounts',
+    accountIds: [],
+    type: flowType,
+    scheduled: type === 'group_schedule'
+  });
+
+  const doneAction =
+    type === 'dm' ? 'dm_accounts_done' :
+    type === 'group_add' ? 'group_add_accounts_done' :
+    'group_accounts_done';
+
+  await edit(ctx, '👤 <b>Select Telegram Account</b>\n\nChoose one, multiple, or all connected accounts.', picker(accounts, [], doneAction));
 }
 
 async function selectedAccounts(ownerId, key) {
   const state = await getUiState(ownerId, key);
   return (state?.data?.accountIds || []).map(String);
+}
+
+async function showGroupAddTargets(ctx) {
+  const ids = await selectedAccounts(ctx.from.id, 'group_flow');
+  if (!ids.length) return edit(ctx, '❌ Select at least one account.', simpleBackKeyboard('feature_group'));
+
+  await edit(ctx, '🔄 <b>Loading Telegram groups & channels...</b>\n\nTelegram dialog list is being read from the selected account(s).');
+
+  let synced = 0;
+  for (const id of ids) {
+    try {
+      const rows = await syncAccountGroups(ctx.from.id, id, config.encryptionKey);
+      synced += rows.length;
+    } catch (error) {
+      console.warn('Group/channel dialog sync failed:', { accountId: id, error: error?.message });
+    }
+  }
+
+  const rows = await ManagedGroup.find({
+    ownerId: ctx.from.id,
+    accountId: { $in: ids }
+  }).sort({ name: 1 }).limit(200).lean();
+
+  if (!rows.length) {
+    return edit(ctx,
+      '❌ <b>No Telegram groups/channels found.</b>\n\nMake sure the selected account is a member/admin of the required chats.',
+      simpleBackKeyboard('feature_group')
+    );
+  }
+
+  const state = await getUiState(ctx.from.id, 'group_flow');
+  const selected = new Set((state?.data?.addTargetKeys || []).map(String));
+  await setUiState(ctx.from.id, 'group_flow', {
+    ...(state?.data || {}),
+    step: 'add_targets',
+    accountIds: ids,
+    type: 'group_add',
+    addTargetKeys: [...selected]
+  });
+
+  const buttons = rows.slice(0, 80).map(r => {
+    const key = String(r.accountId) + ':' + String(r.telegramGroupId);
+    const selectedNow = selected.has(key);
+    const kind = r.type === 'channel' ? '📢' : r.type === 'supergroup' ? '👥' : '👥';
+    const locked = !r.canPost;
+    const label = locked
+      ? '🔒 ' + kind + ' ' + safeTelegramText(r.name || r.telegramGroupId).slice(0, 25)
+      : (selectedNow ? '☑️ ' : '☐ ') + kind + ' ' + safeTelegramText(r.name || r.telegramGroupId).slice(0, 25);
+    return [Markup.button.callback(label, 'group_add_target:' + r.accountId + ':' + r.telegramGroupId)];
+  });
+
+  buttons.push([Markup.button.callback('☑️ Select All Writable', 'group_add_all')]);
+  buttons.push([Markup.button.callback('➕ Add Selected (' + selected.size + ')', 'group_add_done')]);
+  buttons.push([Markup.button.callback('🔄 Refresh Telegram Dialogs', 'group_add_refresh')]);
+  buttons.push([Markup.button.callback('⬅️ Back', 'feature_group')]);
+
+  await edit(
+    ctx,
+    '➕ <b>ADD GROUP / CHANNEL</b>\n\n' +
+      'Telegram dialogs found: ' + rows.length + '\n' +
+      'Selected: ' + selected.size + '\n\n' +
+      '☑️ = selected\n🔒 = no posting permission\n\n' +
+      'Select the chats you want to make available for Group Message.',
+    Markup.inlineKeyboard(buttons)
+  );
 }
 
 async function showDmTargets(ctx) {
@@ -233,9 +307,13 @@ export function registerCampaignV2Handlers(bot, config) {
 
   bot.action('group_accounts_done', async ctx => {
     await ctx.answerCbQuery();
-    const state = await getUiState(ctx.from.id, 'group_flow');
     const ids = await selectedAccounts(ctx.from.id, 'group_flow');
     if (!ids.length) return edit(ctx, '❌ Select at least one account.', simpleBackKeyboard('feature_group'));
+    for (const id of ids) {
+      await syncAccountGroups(ctx.from.id, id, config.encryptionKey).catch(error => {
+        console.warn('Group/channel sync failed:', { accountId: id, error: error?.message });
+      });
+    }
     await showGroupTargets(ctx);
   });
 
@@ -441,11 +519,82 @@ export function registerCampaignV2Handlers(bot, config) {
     await ctx.answerCbQuery();
     await clearUiState(ctx.from.id, 'dm_flow');
     await clearUiState(ctx.from.id, 'autoreply_flow');
-    await setUiState(ctx.from.id, 'group_flow', { step: 'add_group' });
-    await edit(ctx,
-      '➕ <b>ADD GROUP</b>\\n\\nSend the Group ID (example: <code>-1001234567890</code>) or the group @username.\\n\\nThe connected Telegram account must already be a member of the group.\\n\\n/cancel to stop.',
-      messageInputKeyboard('feature_group')
+    await setUiState(ctx.from.id, 'group_flow', {
+      step: 'accounts',
+      accountIds: [],
+      type: 'group_add',
+      addTargetKeys: []
+    });
+    await showAccountPicker(ctx, 'group_add');
+  });
+
+  bot.action('group_add_accounts_done', async ctx => {
+    await ctx.answerCbQuery();
+    const ids = await selectedAccounts(ctx.from.id, 'group_flow');
+    if (!ids.length) return edit(ctx, '❌ Select at least one account.', simpleBackKeyboard('feature_group'));
+    await showGroupAddTargets(ctx);
+  });
+
+  bot.action(/^group_add_target:(.+):(.+)$/, async ctx => {
+    const accountId = String(ctx.match[1]);
+    const targetId = String(ctx.match[2]);
+    const state = await getUiState(ctx.from.id, 'group_flow');
+    const ids = (state?.data?.accountIds || []).map(String);
+    if (!ids.includes(accountId)) return ctx.answerCbQuery('Account is not selected.');
+    const group = await ManagedGroup.findOne({
+      ownerId: ctx.from.id,
+      accountId,
+      telegramGroupId: targetId
+    }).lean();
+    if (!group) return ctx.answerCbQuery('Telegram chat was not found. Refresh.');
+    if (!group.canPost) return ctx.answerCbQuery('No posting permission in this chat.');
+    await ctx.answerCbQuery();
+    const key = accountId + ':' + targetId;
+    const set = new Set((state?.data?.addTargetKeys || []).map(String));
+    set.has(key) ? set.delete(key) : set.add(key);
+    await setUiState(ctx.from.id, 'group_flow', {
+      ...(state?.data || {}),
+      step: 'add_targets',
+      type: 'group_add',
+      addTargetKeys: [...set]
+    });
+    await showGroupAddTargets(ctx);
+  });
+
+  bot.action('group_add_all', async ctx => {
+    await ctx.answerCbQuery('All writable chats selected');
+    const state = await getUiState(ctx.from.id, 'group_flow');
+    const rows = await ManagedGroup.find({
+      ownerId: ctx.from.id,
+      accountId: { $in: state?.data?.accountIds || [] },
+      canPost: true
+    }).lean();
+    await setUiState(ctx.from.id, 'group_flow', {
+      ...(state?.data || {}),
+      step: 'add_targets',
+      type: 'group_add',
+      addTargetKeys: rows.map(r => String(r.accountId) + ':' + String(r.telegramGroupId))
+    });
+    await showGroupAddTargets(ctx);
+  });
+
+  bot.action('group_add_done', async ctx => {
+    await ctx.answerCbQuery('Added');
+    const state = await getUiState(ctx.from.id, 'group_flow');
+    const selected = [...new Set((state?.data?.addTargetKeys || []).map(String))];
+    if (!selected.length) return edit(ctx, '❌ Select at least one writable group/channel first.');
+    await clearUiState(ctx.from.id, 'group_flow');
+    await edit(
+      ctx,
+      '✅ <b>Added ' + selected.length + ' group/channel target(s)</b>\\n\\n' +
+        'They are now available in <b>Group Message → Select Groups</b>.',
+      simpleBackKeyboard('feature_group')
     );
+  });
+
+  bot.action('group_add_refresh', async ctx => {
+    await ctx.answerCbQuery('Refreshing Telegram dialogs...');
+    await showGroupAddTargets(ctx);
   });
 
   bot.action('group_refresh', async ctx => {
@@ -494,88 +643,6 @@ export function registerCampaignV2Handlers(bot, config) {
   });
 
   bot.on('text', async (ctx, next) => {
-    const addState = await getUiState(ctx.from.id, 'group_flow');
-    if (addState?.data?.step === 'add_group') {
-      const input = String(ctx.message.text || '').trim();
-      if (input === '/cancel') {
-        await clearUiState(ctx.from.id, 'group_flow');
-        return ctx.reply('❌ Group add cancelled.', simpleBackKeyboard('feature_group'));
-      }
-      if (!input) return ctx.reply('❌ Enter a Group ID or @username.');
-
-      const accounts = await Account.find({ ownerId: ctx.from.id, status: 'connected' })
-        .sort({ createdAt: -1 }).lean();
-      if (!accounts.length) {
-        await clearUiState(ctx.from.id, 'group_flow');
-        return ctx.reply('❌ Connect a Telegram account first.', simpleBackKeyboard('feature_group'));
-      }
-
-      let added = 0;
-      let lastError = '';
-      for (const account of accounts) {
-        try {
-          const { client } = await restoreAccount(account._id, ctx.from.id, config.encryptionKey);
-          const target = input.replace(/^https?:\/\/(?:t\.)?me\//i, '').replace(/^@/, '').trim();
-          const entity = await client.getEntity(/^[-]?\\d+$/.test(target) ? target : target);
-
-          if (!(entity instanceof Api.Chat) && !(entity instanceof Api.Channel)) {
-            throw new Error('That target is not a Telegram group.');
-          }
-
-          const isSupergroup = entity instanceof Api.Channel && Boolean(entity.megagroup);
-          const canPostNow = await (async () => {
-            try {
-              if (entity instanceof Api.Chat) return true;
-              const permissions = await client.invoke(new Api.channels.GetParticipant({
-                channel: entity,
-                participant: await client.getMe()
-              }));
-              return Boolean(
-                permissions.participant?.adminRights?.postMessages ||
-                permissions.participant?.adminRights?.postStories
-              );
-            } catch {
-              return false;
-            }
-          })();
-
-          await ManagedGroup.findOneAndUpdate(
-            { ownerId: ctx.from.id, accountId: account._id, telegramGroupId: String(entity.id) },
-            { $set: {
-              name: String(entity.title || input),
-              username: entity.username ? String(entity.username) : '',
-              accessHash: entity.accessHash != null ? String(entity.accessHash) : '',
-              type: isSupergroup ? 'supergroup' : 'group',
-              membershipStatus: 'member',
-              canPost: canPostNow,
-              lastSyncedAt: new Date()
-            }},
-            { upsert: true, new: true }
-          );
-          added += 1;
-        } catch (error) {
-          lastError = error?.message || String(error);
-        }
-      }
-
-      await clearUiState(ctx.from.id, 'group_flow');
-      if (!added) {
-        return ctx.reply(
-          '❌ Group add failed.\\n\\n' +
-          'Use the exact Group ID or @username, and make sure the selected Telegram account is already a member.\\n\\n' +
-          (lastError ? 'Reason: ' + lastError.slice(0, 300) : ''),
-          simpleBackKeyboard('feature_group')
-        );
-      }
-
-      return ctx.reply(
-        '✅ <b>Group Added</b>\\n\\n' +
-        'Added for ' + added + ' connected account(s).\\n' +
-        'Now open <b>Group Message → Select Groups</b> and continue.',
-        { parse_mode: 'HTML', ...simpleBackKeyboard('feature_group') }
-      );
-    }
-
     const scheduleState = await getUiState(ctx.from.id, 'group_flow');
     if (scheduleState?.data?.step === 'schedule_interval') {
       const minutes = Number(String(ctx.message.text || '').trim());
