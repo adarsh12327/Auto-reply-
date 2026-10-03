@@ -405,10 +405,9 @@ export async function listWritableGroups(accountId) {
     if (!entity) continue;
 
     const isBasicGroup = entity instanceof Api.Chat;
-    const isSupergroup = entity instanceof Api.Channel && Boolean(entity.megagroup);
-    if (!isBasicGroup && !isSupergroup) continue;
+    const isChannel = entity instanceof Api.Channel;
+    if (!isBasicGroup && !isChannel) continue;
 
-    const target = String(entity.id);
     let allowed = false;
     try {
       allowed = await canPost(client, entity);
@@ -419,11 +418,11 @@ export async function listWritableGroups(accountId) {
     if (!allowed) continue;
 
     groups.push({
-      id: target,
+      id: String(entity.id),
       title: String(dialog.title || entity.title || 'Untitled group'),
       username: entity.username ? String(entity.username) : '',
       accessHash: entity.accessHash != null ? String(entity.accessHash) : '',
-      type: isSupergroup ? 'supergroup' : 'group'
+      type: isChannel ? (entity.megagroup ? 'supergroup' : 'channel') : 'group'
     });
   }
 
@@ -507,21 +506,24 @@ export async function listAllGroups(accountId) {
   const client = getClient(accountId);
   if (!client?.connected) throw new Error('Telegram account is not connected');
 
+  // Telegram's dialog list contains basic groups, supergroups and broadcast
+  // channels. Keep all three here so the bot can show the same chat/channel
+  // picker the connected user sees in Telegram.
   const groups = [];
   for await (const dialog of client.iterDialogs({})) {
     const entity = dialog.entity;
     if (!entity) continue;
 
     const isBasicGroup = entity instanceof Api.Chat;
-    const isSupergroup = entity instanceof Api.Channel && Boolean(entity.megagroup);
-    if (!isBasicGroup && !isSupergroup) continue;
+    const isChannel = entity instanceof Api.Channel;
+    if (!isBasicGroup && !isChannel) continue;
 
     groups.push({
       id: String(entity.id),
       name: String(dialog.title || entity.title || 'Untitled group'),
       username: entity.username ? String(entity.username) : '',
       accessHash: entity.accessHash != null ? String(entity.accessHash) : '',
-      type: entity instanceof Api.Channel && entity.megagroup ? 'supergroup' : 'group'
+      type: isChannel ? (entity.megagroup ? 'supergroup' : 'channel') : 'group'
     });
   }
 
