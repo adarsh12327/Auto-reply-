@@ -5,8 +5,6 @@ const schema = new mongoose.Schema({
   accountId: { type: mongoose.Schema.Types.ObjectId, index: true, required: true },
   telegramGroupId: { type: String, required: true },
   accessHash: { type: String, default: '' },
-  accessHash: { type: String, default: '' },
-  accessHash: { type: String, default: '' },
   name: { type: String, default: '' },
   username: { type: String, default: '' },
   type: { type: String, enum: ['group', 'supergroup', 'channel'], required: true },
