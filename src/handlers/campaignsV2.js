@@ -154,6 +154,142 @@ async function showGroupAddTargets(ctx) {
 async function showDmTargets(ctx) {
   const ids = await selectedAccounts(ctx.from.id, 'dm_flow');
   if (!ids.length) return edit(ctx, '❌ Select at least one account.', simpleBackKeyboard('feature_dm'));
+
+  await edit(ctx, '🔄 <b>Loading Telegram private chats...</b>\n\nReading the selected account(s)\' Telegram dialogs.');
+  const dialogs = [];
+  for (const id of ids) {
+    try {
+      // Refresh the consent/eligibility cache from the real Telegram dialog
+      // list, then use the same live dialog list for the picker UI.
+      await syncAuthorizedRecipients(ctx.from.id, id, config.encryptionKey).catch(() => {});
+      const rows = await listPersonalDialogs(id);
+      for (const row of rows) dialogs.push({ ...row, accountId: String(id) });
+    } catch (error) {
+      console.warn('DM dialog sync failed:', { accountId: id, error: error?.message });
+    }
+  }
+
+  const authorizedRows = await BusinessRecipient.find({
+    ownerId: ctx.from.id,
+    accountId: { $in: ids },
+    authorized: true
+  }).select('accountId telegramUserId').lean();
+  const authorized = new Set(
+    authorizedRows.map(r => String(r.accountId) + ':' + String(r.telegramUserId))
+  );
+
+  if (!dialogs.length) {
+    return edit(ctx,
+      '🔎 <b>No private chats found.</b>\n\nOpen a private chat with the connected Telegram account first.',
+      simpleBackKeyboard('feature_dm')
+    );
+  }
+
+  await setUiState(ctx.from.id, 'dm_flow', {
+    step: 'targets',
+    accountIds: ids,
+    targetKeys: [],
+    type: 'dm'
+  });
+
+  const state = await getUiState(ctx.from.id, 'dm_flow');
+  const selected = new Set((state?.data?.targetKeys || []).map(String));
+
+  const buttons = dialogs.slice(0, 80).map(r => {
+    const key = String(r.accountId) + ':' + String(r.id);
+    const eligible = authorized.has(key);
+    const isSelected = selected.has(key);
+    const name = safeTelegramText(r.name || r.username || r.id).slice(0, 24);
+    const label = !eligible
+      ? '🔒 ' + name
+      : (isSelected ? '☑️ ' : '☐ ') + name;
+    return [Markup.button.callback(label, 'dm_target:' + r.accountId + ':' + r.id)];
+  });
+
+  buttons.push([Markup.button.callback('☑️ Select All Eligible', 'dm_targets_all')]);
+  buttons.push([Markup.button.callback('✉️ Continue (' + selected.size + ' selected)', 'dm_targets_done')]);
+  buttons.push([Markup.button.callback('🔄 Refresh Telegram DMs', 'dm_targets_refresh')]);
+  buttons.push([Markup.button.callback('⬅️ Back', 'feature_dm')]);
+
+  await edit(
+    ctx,
+    '👤 <b>TELEGRAM PRIVATE CHATS</b>\n\n' +
+      'Chats found: ' + dialogs.length + '\n' +
+      'Eligible: ' + authorized.size + '\n' +
+      'Selected: ' + selected.size + '\n\n' +
+      '☑️ = selected\n🔒 = not eligible for Mass DM',
+    Markup.inlineKeyboard(buttons)
+  );
+}
+
+async function showGroupAddTargets(ctx) {
+  const ids = await selectedAccounts(ctx.from.id, 'group_flow');
+  if (!ids.length) return edit(ctx, '❌ Select at least one account.', simpleBackKeyboard('feature_group'));
+
+  await edit(ctx, '🔄 <b>Loading Telegram groups & channels...</b>\n\nTelegram dialog list is being read from the selected account(s).');
+
+  let synced = 0;
+  for (const id of ids) {
+    try {
+      const rows = await syncAccountGroups(ctx.from.id, id, config.encryptionKey);
+      synced += rows.length;
+    } catch (error) {
+      console.warn('Group/channel dialog sync failed:', { accountId: id, error: error?.message });
+    }
+  }
+
+  const rows = await ManagedGroup.find({
+    ownerId: ctx.from.id,
+    accountId: { $in: ids }
+  }).sort({ name: 1 }).limit(200).lean();
+
+  if (!rows.length) {
+    return edit(ctx,
+      '❌ <b>No Telegram groups/channels found.</b>\n\nMake sure the selected account is a member/admin of the required chats.',
+      simpleBackKeyboard('feature_group')
+    );
+  }
+
+  const state = await getUiState(ctx.from.id, 'group_flow');
+  const selected = new Set((state?.data?.addTargetKeys || []).map(String));
+  await setUiState(ctx.from.id, 'group_flow', {
+    ...(state?.data || {}),
+    step: 'add_targets',
+    accountIds: ids,
+    type: 'group_add',
+    addTargetKeys: [...selected]
+  });
+
+  const buttons = rows.slice(0, 80).map(r => {
+    const key = String(r.accountId) + ':' + String(r.telegramGroupId);
+    const selectedNow = selected.has(key);
+    const kind = r.type === 'channel' ? '📢' : r.type === 'supergroup' ? '👥' : '👥';
+    const locked = !r.canPost;
+    const label = locked
+      ? '🔒 ' + kind + ' ' + safeTelegramText(r.name || r.telegramGroupId).slice(0, 25)
+      : (selectedNow ? '☑️ ' : '☐ ') + kind + ' ' + safeTelegramText(r.name || r.telegramGroupId).slice(0, 25);
+    return [Markup.button.callback(label, 'group_add_target:' + r.accountId + ':' + r.telegramGroupId)];
+  });
+
+  buttons.push([Markup.button.callback('☑️ Select All Writable', 'group_add_all')]);
+  buttons.push([Markup.button.callback('➕ Add Selected (' + selected.size + ')', 'group_add_done')]);
+  buttons.push([Markup.button.callback('🔄 Refresh Telegram Dialogs', 'group_add_refresh')]);
+  buttons.push([Markup.button.callback('⬅️ Back', 'feature_group')]);
+
+  await edit(
+    ctx,
+    '➕ <b>ADD GROUP / CHANNEL</b>\n\n' +
+      'Telegram dialogs found: ' + rows.length + '\n' +
+      'Selected: ' + selected.size + '\n\n' +
+      '☑️ = selected\n🔒 = no posting permission\n\n' +
+      'Select the chats you want to make available for Group Message.',
+    Markup.inlineKeyboard(buttons)
+  );
+}
+
+async function showDmTargets(ctx) {
+  const ids = await selectedAccounts(ctx.from.id, 'dm_flow');
+  if (!ids.length) return edit(ctx, '❌ Select at least one account.', simpleBackKeyboard('feature_dm'));
   const rows = await BusinessRecipient.find({ ownerId: ctx.from.id, accountId: { $in: ids }, authorized: true }).sort({ lastIncomingAt: -1 }).limit(200).lean();
   if (!rows.length) return edit(ctx, '🔎 <b>No eligible DM recipients found.</b>\n\nThe selected accounts need real incoming/private contact history before a recipient can be used for Mass DM.', simpleBackKeyboard('feature_dm'));
   await setUiState(ctx.from.id, 'dm_flow', { step: 'targets', accountIds: ids, targetKeys: [], type: 'dm' });
@@ -318,26 +454,43 @@ export function registerCampaignV2Handlers(bot, config) {
   });
 
   bot.action(/^dm_target:(.+):(.+)$/, async ctx => {
+    const accountId = String(ctx.match[1]);
+    const userId = String(ctx.match[2]);
+    const recipient = await BusinessRecipient.findOne({
+      ownerId: ctx.from.id,
+      accountId,
+      telegramUserId: userId,
+      authorized: true
+    }).lean();
+    if (!recipient) return ctx.answerCbQuery('This private chat is not eligible for Mass DM.');
     await ctx.answerCbQuery();
     const state = await getUiState(ctx.from.id, 'dm_flow');
     if (!state) return;
-    const key = String(ctx.match[1]) + ':' + String(ctx.match[2]);
-    const set = new Set(state.data.targetKeys || []);
+    const key = accountId + ':' + userId;
+    const set = new Set((state.data.targetKeys || []).map(String));
     set.has(key) ? set.delete(key) : set.add(key);
     await setUiState(ctx.from.id, 'dm_flow', { ...state.data, targetKeys: [...set] });
-    await edit(ctx, '👥 <b>ELIGIBLE RECIPIENTS</b>\n\nSelected: ' + set.size, Markup.inlineKeyboard([
-      [Markup.button.callback('☑️ Use All Eligible', 'dm_targets_all')],
-      [Markup.button.callback('✉️ Continue', 'dm_targets_done')],
-      [Markup.button.callback('⬅️ Back', 'feature_dm')]
-    ]));
+    await showDmTargets(ctx);
+  });
+
+  bot.action('dm_targets_refresh', async ctx => {
+    await ctx.answerCbQuery('Refreshing Telegram DMs...');
+    await showDmTargets(ctx);
   });
 
   bot.action('dm_targets_all', async ctx => {
     await ctx.answerCbQuery('All eligible selected');
     const state = await getUiState(ctx.from.id, 'dm_flow');
-    const rows = await BusinessRecipient.find({ ownerId: ctx.from.id, accountId: { $in: state.data.accountIds }, authorized: true }).lean();
-    await setUiState(ctx.from.id, 'dm_flow', { ...state.data, targetKeys: rows.map(r => String(r.accountId)+':'+String(r.telegramUserId)) });
-    await showMessageChoice(ctx, 'dm');
+    const rows = await BusinessRecipient.find({
+      ownerId: ctx.from.id,
+      accountId: { $in: state.data.accountIds },
+      authorized: true
+    }).lean();
+    await setUiState(ctx.from.id, 'dm_flow', {
+      ...state.data,
+      targetKeys: rows.map(r => String(r.accountId) + ':' + String(r.telegramUserId))
+    });
+    await showDmTargets(ctx);
   });
 
   bot.action('dm_targets_done', async ctx => { await ctx.answerCbQuery(); await showMessageChoice(ctx, 'dm'); });
