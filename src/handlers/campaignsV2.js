@@ -222,20 +222,6 @@ async function showDmTargets(ctx) {
   );
 }
 
-async function showDmTargets(ctx) {
-  const ids = await selectedAccounts(ctx.from.id, 'dm_flow');
-  if (!ids.length) return edit(ctx, '❌ Select at least one account.', simpleBackKeyboard('feature_dm'));
-  const rows = await BusinessRecipient.find({ ownerId: ctx.from.id, accountId: { $in: ids }, authorized: true }).sort({ lastIncomingAt: -1 }).limit(200).lean();
-  if (!rows.length) return edit(ctx, '🔎 <b>No eligible DM recipients found.</b>\n\nThe selected accounts need real incoming/private contact history before a recipient can be used for Mass DM.', simpleBackKeyboard('feature_dm'));
-  await setUiState(ctx.from.id, 'dm_flow', { step: 'targets', accountIds: ids, targetKeys: [], type: 'dm' });
-  const buttons = rows.slice(0, 30).map(r => [
-    Markup.button.callback('☐ ' + safeTelegramText(r.name || r.username || r.telegramUserId).slice(0, 25), 'dm_target:' + r.accountId + ':' + r.telegramUserId)
-  ]);
-  buttons.push([Markup.button.callback('☑️ Use All Eligible', 'dm_targets_all')]);
-  buttons.push([Markup.button.callback('✉️ Continue', 'dm_targets_done')]);
-  buttons.push([Markup.button.callback('⬅️ Back', 'feature_dm')]);
-  await edit(ctx, '👥 <b>ELIGIBLE RECIPIENTS</b>\n\nFound: ' + rows.length + '\n\nSelect specific recipients or use all eligible recipients.', Markup.inlineKeyboard(buttons));
-}
 
 async function showGroupTargets(ctx) {
   const ids = await selectedAccounts(ctx.from.id, 'group_flow');
