@@ -62,7 +62,7 @@ async function showAccountPicker(ctx, type) {
       scheduled: type === 'group_schedule'
     });
     if (flowType === 'dm') return showDmTargets(ctx);
-    if (flowType === 'group_add') return showGroupAddTargets(ctx);
+    if (flowType === 'group_add') return showGroupAddTargets(ctx, config);
     return showGroupTargets(ctx);
   }
 
@@ -86,7 +86,7 @@ async function selectedAccounts(ownerId, key) {
   return (state?.data?.accountIds || []).map(String);
 }
 
-async function showGroupAddTargets(ctx) {
+async function showGroupAddTargets(ctx, config) {
   const ids = await selectedAccounts(ctx.from.id, 'group_flow');
   if (!ids.length) return edit(ctx, '❌ Select at least one account.', simpleBackKeyboard('feature_group'));
 
@@ -606,7 +606,7 @@ export function registerCampaignV2Handlers(bot, config) {
     await ctx.answerCbQuery();
     const ids = await selectedAccounts(ctx.from.id, 'group_flow');
     if (!ids.length) return edit(ctx, '❌ Select at least one account.', simpleBackKeyboard('feature_group'));
-    await showGroupAddTargets(ctx);
+    await showGroupAddTargets(ctx, config);
   });
 
   bot.action(/^group_add_target:(.+):(.+)$/, async ctx => {
@@ -632,7 +632,7 @@ export function registerCampaignV2Handlers(bot, config) {
       type: 'group_add',
       addTargetKeys: [...set]
     });
-    await showGroupAddTargets(ctx);
+    await showGroupAddTargets(ctx, config);
   });
 
   bot.action('group_add_all', async ctx => {
@@ -649,7 +649,7 @@ export function registerCampaignV2Handlers(bot, config) {
       type: 'group_add',
       addTargetKeys: rows.map(r => String(r.accountId) + ':' + String(r.telegramGroupId))
     });
-    await showGroupAddTargets(ctx);
+    await showGroupAddTargets(ctx, config);
   });
 
   bot.action('group_add_done', async ctx => {
@@ -668,7 +668,7 @@ export function registerCampaignV2Handlers(bot, config) {
 
   bot.action('group_add_refresh', async ctx => {
     await ctx.answerCbQuery('Refreshing Telegram dialogs...');
-    await showGroupAddTargets(ctx);
+    await showGroupAddTargets(ctx, config);
   });
 
   bot.action('group_refresh', async ctx => {
