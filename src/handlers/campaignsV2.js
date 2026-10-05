@@ -125,8 +125,7 @@ async function showGroupAddTargets(ctx, config) {
 
   const rows = await ManagedGroup.find({
     ownerId: ctx.from.id,
-    accountId: { $in: ids },
-    canPost: true
+    accountId: { $in: ids }
   }).sort({ name: 1 }).limit(200).lean();
 
   if (!rows.length) {
@@ -149,11 +148,8 @@ async function showGroupAddTargets(ctx, config) {
   const buttons = rows.slice(0, 80).map(r => {
     const key = String(r.accountId) + ':' + String(r.telegramGroupId);
     const selectedNow = selected.has(key);
-    const kind = r.type === 'channel' ? '📢' : r.type === 'supergroup' ? '👥' : '👥';
-    const locked = !r.canPost;
-    const label = locked
-      ? '🔒 ' + kind + ' ' + safeTelegramText(r.name || r.telegramGroupId).slice(0, 25)
-      : (selectedNow ? '☑️ ' : '☐ ') + kind + ' ' + safeTelegramText(r.name || r.telegramGroupId).slice(0, 25);
+    const kind = r.type === 'channel' ? '📢' : '👥';
+    const label = (selectedNow ? '☑️ ' : '☐ ') + kind + ' ' + safeTelegramText(r.name || r.telegramGroupId).slice(0, 25);
     return [Markup.button.callback(label, 'group_add_target:' + r.accountId + ':' + r.telegramGroupId)];
   });
 
@@ -724,7 +720,7 @@ export function registerCampaignV2Handlers(bot, config) {
       telegramGroupId: targetId
     }).lean();
     if (!group) return ctx.answerCbQuery('Telegram chat was not found. Refresh.');
-    if (!group.canPost) return ctx.answerCbQuery('No posting permission in this chat.');
+
     await ctx.answerCbQuery();
     const key = accountId + ':' + targetId;
     const set = new Set((state?.data?.addTargetKeys || []).map(String));
@@ -743,8 +739,7 @@ export function registerCampaignV2Handlers(bot, config) {
     const state = await getUiState(ctx.from.id, 'group_flow');
     const rows = await ManagedGroup.find({
       ownerId: ctx.from.id,
-      accountId: { $in: state?.data?.accountIds || [] },
-      canPost: true
+      accountId: { $in: state?.data?.accountIds || [] }
     }).lean();
     await setUiState(ctx.from.id, 'group_flow', {
       ...(state?.data || {}),
@@ -765,7 +760,7 @@ export function registerCampaignV2Handlers(bot, config) {
       const [accountId, ...rest] = key.split(':');
       const telegramGroupId = rest.join(':');
       const result = await ManagedGroup.updateOne(
-        { ownerId: ctx.from.id, accountId, telegramGroupId, canPost: true },
+        { ownerId: ctx.from.id, accountId, telegramGroupId },
         { $set: { saved: true } }
       );
       saved += result.matchedCount || 0;
