@@ -125,7 +125,8 @@ async function showGroupAddTargets(ctx, config) {
 
   const rows = await ManagedGroup.find({
     ownerId: ctx.from.id,
-    accountId: { $in: ids }
+    accountId: { $in: ids },
+    canPost: true
   }).sort({ name: 1 }).limit(200).lean();
 
   if (!rows.length) {
@@ -163,8 +164,7 @@ async function showGroupAddTargets(ctx, config) {
   await edit(
     ctx,
     '👥 <b>SELECT GROUP</b>\n\n' +
-      'Select groups one by one or use Select All.\n' +
-      '🔒 = no posting permission',
+      'Select groups one by one or use Select All.',
     Markup.inlineKeyboard(buttons)
   );
 }
