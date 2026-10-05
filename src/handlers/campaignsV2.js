@@ -311,7 +311,15 @@ async function buildPreview(ctx, type, message) {
 
 export function registerCampaignV2Handlers(bot, config) {
   bot.action('feature_dm', async ctx => { await ctx.answerCbQuery(); await showAccountPicker(ctx, 'dm', config); });
-  bot.action('feature_group', async ctx => { await ctx.answerCbQuery(); await showAccountPicker(ctx, 'group', config); });
+  bot.action('feature_group', async ctx => {
+    await ctx.answerCbQuery();
+    await clearUiState(ctx.from.id, 'group_flow');
+    await edit(ctx, '➕ <b>GROUP MESSAGE</b>\\n\\nChoose what you want to do:', Markup.inlineKeyboard([
+      [Markup.button.callback('1. Select Group', 'group_add_select')],
+      [Markup.button.callback('2. Save Group List', 'group_saved_list')],
+      [Markup.button.callback('3. Back', 'main_menu')]
+    ]));
+  });
 
   bot.action(/^account_pick:(.+)$/, async ctx => {
     await ctx.answerCbQuery();
