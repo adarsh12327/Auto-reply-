@@ -86,6 +86,27 @@ async function selectedAccounts(ownerId, key) {
   return (state?.data?.accountIds || []).map(String);
 }
 
+async function showNativeGroupPicker(ctx) {
+  const state = await getUiState(ctx.from.id, 'group_flow');
+  const ids = (state?.data?.accountIds || []).map(String);
+  if (!ids.length) return edit(ctx, '❌ Connect a Telegram account first.', simpleBackKeyboard('feature_group'));
+
+  await ctx.reply(
+    '👥 <b>SELECT GROUP</b>\\n\\nTap <b>Choose Group</b> below. Telegram will open your native group selector.',
+    {
+      parse_mode: 'HTML',
+      ...Markup.keyboard([
+        [{ text: '👥 Choose Group', request_chat: {
+          request_id: 71001,
+          chat_is_channel: false
+        }}],
+        [{ text: '💾 Save Group List' }],
+        [{ text: '⬅️ Back' }]
+      ]).resize().oneTime()
+    }
+  );
+}
+
 async function showGroupAddTargets(ctx, config) {
   const ids = await selectedAccounts(ctx.from.id, 'group_flow');
   if (!ids.length) return edit(ctx, '❌ Select at least one account.', simpleBackKeyboard('feature_group'));
@@ -607,18 +628,81 @@ export function registerCampaignV2Handlers(bot, config) {
     const accounts = await Account.find({ ownerId: ctx.from.id, status: 'connected' }).select('_id').lean();
     if (!accounts.length) return edit(ctx, '❌ No connected Telegram account. Add an account first.', simpleBackKeyboard('feature_group'));
     const ids = accounts.map(a => String(a._id));
+    const current = await getUiState(ctx.from.id, 'group_flow');
     await setUiState(ctx.from.id, 'group_flow', {
+      ...(current?.data || {}),
       step: 'add_targets',
       accountIds: ids,
       type: 'group_add',
-      addTargetKeys: []
+      addTargetKeys: current?.data?.addTargetKeys || []
     });
-    await showGroupAddTargets(ctx, config);
+    await showNativeGroupPicker(ctx);
   });
 
   bot.action('group_saved_list', async ctx => {
     await ctx.answerCbQuery();
     await showSavedGroupList(ctx);
+  });
+
+  bot.on('message', async ctx => {
+    const shared = ctx.message?.chat_shared;
+    if (!shared) return;
+
+    const state = await getUiState(ctx.from.id, 'group_flow');
+    if (!state?.data || state.data.type !== 'group_add') return;
+
+    const ids = (state.data.accountIds || []).map(String);
+    const chatId = String(shared.chat_id);
+
+    let matches = await ManagedGroup.find({
+      ownerId: ctx.from.id,
+      accountId: { $in: ids },
+      telegramGroupId: chatId,
+      canPost: true
+    }).lean();
+
+    // Refresh the selected Telegram accounts once if the chat was not cached yet.
+    if (!matches.length) {
+      for (const accountId of ids) {
+        try {
+          await syncAccountGroups(ctx.from.id, accountId, config.encryptionKey);
+        } catch (error) {
+          console.warn('Native group picker sync failed:', { accountId, error: error?.message });
+        }
+      }
+      matches = await ManagedGroup.find({
+        ownerId: ctx.from.id,
+        accountId: { $in: ids },
+        telegramGroupId: chatId,
+        canPost: true
+      }).lean();
+    }
+
+    if (!matches.length) {
+      return ctx.reply('❌ This group is not available for posting from the connected Telegram account.');
+    }
+
+    const selected = new Set((state.data.addTargetKeys || []).map(String));
+    for (const row of matches) selected.add(String(row.accountId) + ':' + String(row.telegramGroupId));
+
+    await setUiState(ctx.from.id, 'group_flow', {
+      ...state.data,
+      step: 'add_targets',
+      addTargetKeys: [...selected]
+    });
+
+    const names = matches.map(r => safeTelegramText(r.name || chatId)).filter(Boolean).join(', ');
+    await ctx.reply(
+      '✅ <b>Group selected</b>\\n\\n' + names + '\\n\\nSelected: ' + selected.size,
+      {
+        parse_mode: 'HTML',
+        ...Markup.inlineKeyboard([
+          [Markup.button.callback('👥 Select Another Group', 'group_add_select')],
+          [Markup.button.callback('💾 Save Group List', 'group_add_done')],
+          [Markup.button.callback('⬅️ Back', 'feature_group')]
+        ])
+      }
+    );
   });
 
   bot.action('group_add_accounts_done', async ctx => {
