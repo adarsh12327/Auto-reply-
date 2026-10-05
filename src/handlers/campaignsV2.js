@@ -241,7 +241,7 @@ async function showGroupTargets(ctx) {
   const ids = await selectedAccounts(ctx.from.id, 'group_flow');
   if (!ids.length) return edit(ctx, '❌ Select at least one account.', simpleBackKeyboard('feature_group'));
   // Continue must stay fast: use the already-synced group cache here.
-  const rows = await ManagedGroup.find({ ownerId: ctx.from.id, accountId: { $in: ids }, canPost: true, saved: true }).sort({ name: 1 }).limit(200).lean();
+  const rows = await ManagedGroup.find({ ownerId: ctx.from.id, accountId: { $in: ids }, saved: true }).sort({ name: 1 }).limit(200).lean();
   const state = await getUiState(ctx.from.id, 'group_flow');
   const availableKeys = new Set(rows.map(r => String(r.accountId) + ':' + String(r.telegramGroupId)));
   const selected = new Set(
@@ -773,7 +773,7 @@ export function registerCampaignV2Handlers(bot, config) {
   });
 
   async function showSavedGroupList(ctx) {
-    const rows = await ManagedGroup.find({ ownerId: ctx.from.id, saved: true, canPost: true }).sort({ name: 1 }).limit(200).lean();
+    const rows = await ManagedGroup.find({ ownerId: ctx.from.id, saved: true }).sort({ name: 1 }).limit(200).lean();
     if (!rows.length) return edit(ctx, '📋 <b>SAVED GROUP LIST</b>\\n\\nNo saved groups yet.', Markup.inlineKeyboard([
       [Markup.button.callback('➕ Select Group', 'group_add_select')],
       [Markup.button.callback('⬅️ Back', 'group_add')]
