@@ -648,12 +648,12 @@ export function registerCampaignV2Handlers(bot, config) {
     await showSavedGroupList(ctx);
   });
 
-  bot.on('message', async ctx => {
+  bot.on('message', async (ctx, next) => {
     const shared = ctx.message?.chat_shared;
-    if (!shared) return;
+    if (!shared) return next();
 
     const state = await getUiState(ctx.from.id, 'group_flow');
-    if (!state?.data || state.data.type !== 'group_add') return;
+    if (!state?.data || state.data.type !== 'group_add') return next();
 
     const ids = (state.data.accountIds || []).map(String);
     const chatId = String(shared.chat_id);
