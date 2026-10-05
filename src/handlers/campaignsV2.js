@@ -136,7 +136,7 @@ async function showGroupAddTargets(ctx, config) {
   });
 
   buttons.push([Markup.button.callback('☑️ Select All Writable', 'group_add_all')]);
-  buttons.push([Markup.button.callback('➕ Add Selected (' + selected.size + ')', 'group_add_done')]);
+  buttons.push([Markup.button.callback('💾 Save Selected (' + selected.size + ')', 'group_add_done')]);
   buttons.push([Markup.button.callback('🔄 Refresh Telegram Dialogs', 'group_add_refresh')]);
   buttons.push([Markup.button.callback('⬅️ Back', 'feature_group')]);
 
@@ -688,7 +688,7 @@ export function registerCampaignV2Handlers(bot, config) {
         { ownerId: ctx.from.id, accountId, telegramGroupId, canPost: true },
         { $set: { saved: true } }
       );
-      saved += result.modifiedCount || 0;
+      saved += result.matchedCount || 0;
     }
     await clearUiState(ctx.from.id, 'group_flow');
     await edit(ctx, '✅ <b>Group list saved</b>\\n\\nSaved: ' + saved + ' group(s).', Markup.inlineKeyboard([
