@@ -559,17 +559,21 @@ export function registerCampaignV2Handlers(bot, config) {
     await ctx.answerCbQuery();
     await clearUiState(ctx.from.id, 'dm_flow');
     await clearUiState(ctx.from.id, 'autoreply_flow');
+
+    // Group List opens the live Telegram group/channel picker directly.
+    const accounts = await Account.find({ ownerId: ctx.from.id, status: 'connected' }).select('_id').lean();
+    if (!accounts.length) {
+      return edit(ctx, '❌ No connected Telegram account. Add an account first.', simpleBackKeyboard('feature_group'));
+    }
+
+    const ids = accounts.map(a => String(a._id));
     await setUiState(ctx.from.id, 'group_flow', {
-      step: 'add_menu',
-      accountIds: [],
+      step: 'add_targets',
+      accountIds: ids,
       type: 'group_add',
       addTargetKeys: []
     });
-    await edit(ctx, '➕ <b>GROUP LIST</b>\\n\\nChoose what you want to do:', Markup.inlineKeyboard([
-      [Markup.button.callback('1. Select Group', 'group_add_select')],
-      [Markup.button.callback('2. Save Group List', 'group_saved_list')],
-      [Markup.button.callback('3. Back', 'feature_group')]
-    ]));
+    await showGroupAddTargets(ctx, config);
   });
 
   bot.action('group_add_select', async ctx => {
