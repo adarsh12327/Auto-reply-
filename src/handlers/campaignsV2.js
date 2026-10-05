@@ -632,7 +632,7 @@ export function registerCampaignV2Handlers(bot, config) {
       type: 'group_add',
       addTargetKeys: current?.data?.addTargetKeys || []
     });
-    await showNativeGroupPicker(ctx);
+    await showGroupAddTargets(ctx, config);
   });
 
   bot.action('group_saved_list', async ctx => {
