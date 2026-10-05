@@ -135,18 +135,15 @@ async function showGroupAddTargets(ctx, config) {
     return [Markup.button.callback(label, 'group_add_target:' + r.accountId + ':' + r.telegramGroupId)];
   });
 
-  buttons.push([Markup.button.callback('☑️ Select All Writable', 'group_add_all')]);
+  buttons.push([Markup.button.callback('☑️ Select All', 'group_add_all')]);
   buttons.push([Markup.button.callback('💾 Save Selected (' + selected.size + ')', 'group_add_done')]);
-  buttons.push([Markup.button.callback('🔄 Refresh Telegram Dialogs', 'group_add_refresh')]);
-  buttons.push([Markup.button.callback('⬅️ Back', 'feature_group')]);
+  buttons.push([Markup.button.callback('⬅️ Back', 'group_add')]);
 
   await edit(
     ctx,
-    '➕ <b>ADD GROUP / CHANNEL</b>\n\n' +
-      'Telegram dialogs found: ' + rows.length + '\n' +
-      'Selected: ' + selected.size + '\n\n' +
-      '☑️ = selected\n🔒 = no posting permission\n\n' +
-      'Select the chats you want to make available for Group Message.',
+    '👥 <b>SELECT GROUP</b>\n\n' +
+      'Select groups one by one or use Select All.\n' +
+      '🔒 = no posting permission',
     Markup.inlineKeyboard(buttons)
   );
 }
@@ -244,7 +241,7 @@ async function showGroupTargets(ctx) {
       targetKeys: [],
       type: 'group'
     });
-    return edit(ctx, '🔎 <b>No writable groups found.</b>\n\nTap <b>🔄 Refresh Groups</b> to scan the selected account again.', Markup.inlineKeyboard([[Markup.button.callback('🔄 Refresh Groups', 'group_refresh')],[Markup.button.callback('⬅️ Back', 'feature_group')]]), { parse_mode: 'HTML' });
+    return edit(ctx, '🔎 <b>No saved groups found.</b>\n\nFirst open Group List → Select Group and save the groups you want to use.', Markup.inlineKeyboard([[Markup.button.callback('📋 Group List', 'group_add')],[Markup.button.callback('⬅️ Back', 'feature_group')]]), { parse_mode: 'HTML' });
   }
   await setUiState(ctx.from.id, 'group_flow', {
     ...(state?.data || {}),
@@ -263,16 +260,14 @@ async function showGroupTargets(ctx) {
     return [Markup.button.callback(label, 'group_target:' + r.accountId + ':' + r.telegramGroupId)];
   });
 
-  buttons.push([Markup.button.callback('☑️ Use All Writable Groups', 'group_targets_all')]);
-  buttons.push([Markup.button.callback('🔄 Refresh Groups', 'group_refresh_targets')]);
+  buttons.push([Markup.button.callback('☑️ Select All', 'group_targets_all')]);
   buttons.push([Markup.button.callback('✉️ Continue (' + selected.size + ' selected)', 'group_targets_done')]);
   buttons.push([Markup.button.callback('⬅️ Back', 'feature_group')]);
 
   await edit(
     ctx,
-    '👥 <b>WRITABLE GROUPS</b>\n\nFound: ' + rows.length +
-      '\nSelected: ' + selected.size +
-      '\n\n☑️ = already selected\nTap a selected group again to unselect.',
+    '👥 <b>SELECT SAVED GROUPS</b>\n\n' +
+      'Select groups one by one or use Select All.',
     Markup.inlineKeyboard(buttons)
   );
 }
@@ -427,39 +422,10 @@ export function registerCampaignV2Handlers(bot, config) {
     await showGroupTargets(ctx);
   });
 
-  bot.action('group_refresh_targets', async ctx => {
-    await ctx.answerCbQuery('Refreshing groups...');
-    const state = await getUiState(ctx.from.id, 'group_flow');
-    const ids = (state?.data?.accountIds || []).map(String);
-    if (!ids.length) return edit(ctx, '❌ Select at least one account.', simpleBackKeyboard('feature_group'));
-
-    await edit(ctx, '🔄 <b>Refreshing Groups...</b>\\n\\nPlease wait...');
-    let total = 0;
-    for (const id of ids) {
-      try {
-        const groups = await syncAccountGroups(ctx.from.id, id, config.encryptionKey);
-        total += groups.length;
-      } catch (error) {
-        console.warn('Group refresh failed:', { accountId: id, error: error?.message });
-      }
-    }
-
-    // Re-render through the single group-picker renderer so existing
-    // selections stay checked after a refresh.
-    const latest = await getUiState(ctx.from.id, 'group_flow');
-    await setUiState(ctx.from.id, 'group_flow', {
-      ...(latest?.data || state.data),
-      step: 'targets',
-      accountIds: ids,
-      type: 'group'
-    });
-    await showGroupTargets(ctx);
-  });
-
   bot.action('group_targets_all', async ctx => {
     await ctx.answerCbQuery('All groups selected');
     const state = await getUiState(ctx.from.id, 'group_flow');
-    const rows = await ManagedGroup.find({ ownerId: ctx.from.id, accountId: { $in: state.data.accountIds }, canPost: true }).lean();
+    const rows = await ManagedGroup.find({ ownerId: ctx.from.id, accountId: { $in: state.data.accountIds }, canPost: true, saved: true }).lean();
     await setUiState(ctx.from.id, 'group_flow', { ...state.data, targetKeys: rows.map(r => String(r.accountId)+':'+String(r.telegramGroupId)) });
     await showMessageChoice(ctx, 'group');
   });
@@ -716,11 +682,6 @@ export function registerCampaignV2Handlers(bot, config) {
     await ctx.answerCbQuery('Removed from saved list');
     await ManagedGroup.updateOne({ _id: ctx.match[1], ownerId: ctx.from.id }, { $set: { saved: false } });
     await showSavedGroupList(ctx);
-  });
-
-  bot.action('group_add_refresh', async ctx => {
-    await ctx.answerCbQuery('Refreshing Telegram dialogs...');
-    await showGroupAddTargets(ctx, config);
   });
 
   bot.action('group_refresh', async ctx => {
