@@ -46,7 +46,7 @@ async function edit(ctx, text, keyboard = simpleBackKeyboard()) {
   }
 }
 
-async function showAccountPicker(ctx, type) {
+async function showAccountPicker(ctx, type, config) {
   const accounts = await Account.find({ ownerId: ctx.from.id, status: 'connected' }).sort({ createdAt: -1 }).lean();
   if (!accounts.length) return edit(ctx, '❌ <b>No connected Telegram accounts.</b>\n\nUse Add Account first.', simpleBackKeyboard());
   const key = type === 'dm' ? 'dm_flow' : 'group_flow';
@@ -227,7 +227,7 @@ async function showGroupTargets(ctx) {
   const ids = await selectedAccounts(ctx.from.id, 'group_flow');
   if (!ids.length) return edit(ctx, '❌ Select at least one account.', simpleBackKeyboard('feature_group'));
   // Continue must stay fast: use the already-synced group cache here.
-  const rows = await ManagedGroup.find({ ownerId: ctx.from.id, accountId: { $in: ids }, canPost: true }).sort({ name: 1 }).limit(200).lean();
+  const rows = await ManagedGroup.find({ ownerId: ctx.from.id, accountId: { $in: ids }, canPost: true, saved: true }).sort({ name: 1 }).limit(200).lean();
   const state = await getUiState(ctx.from.id, 'group_flow');
   const availableKeys = new Set(rows.map(r => String(r.accountId) + ':' + String(r.telegramGroupId)));
   const selected = new Set(
@@ -315,8 +315,8 @@ async function buildPreview(ctx, type, message) {
 }
 
 export function registerCampaignV2Handlers(bot, config) {
-  bot.action('feature_dm', async ctx => { await ctx.answerCbQuery(); await showAccountPicker(ctx, 'dm'); });
-  bot.action('feature_group', async ctx => { await ctx.answerCbQuery(); await showAccountPicker(ctx, 'group'); });
+  bot.action('feature_dm', async ctx => { await ctx.answerCbQuery(); await showAccountPicker(ctx, 'dm', config); });
+  bot.action('feature_group', async ctx => { await ctx.answerCbQuery(); await showAccountPicker(ctx, 'group', config); });
 
   bot.action(/^account_pick:(.+)$/, async ctx => {
     await ctx.answerCbQuery();
@@ -594,12 +594,35 @@ export function registerCampaignV2Handlers(bot, config) {
     await clearUiState(ctx.from.id, 'dm_flow');
     await clearUiState(ctx.from.id, 'autoreply_flow');
     await setUiState(ctx.from.id, 'group_flow', {
-      step: 'accounts',
+      step: 'add_menu',
       accountIds: [],
       type: 'group_add',
       addTargetKeys: []
     });
-    await showAccountPicker(ctx, 'group_add');
+    await edit(ctx, '➕ <b>GROUP LIST</b>\\n\\nChoose what you want to do:', Markup.inlineKeyboard([
+      [Markup.button.callback('1. Select Group', 'group_add_select')],
+      [Markup.button.callback('2. Save Group List', 'group_saved_list')],
+      [Markup.button.callback('3. Back', 'feature_group')]
+    ]));
+  });
+
+  bot.action('group_add_select', async ctx => {
+    await ctx.answerCbQuery();
+    const accounts = await Account.find({ ownerId: ctx.from.id, status: 'connected' }).select('_id').lean();
+    if (!accounts.length) return edit(ctx, '❌ No connected Telegram account. Add an account first.', simpleBackKeyboard('feature_group'));
+    const ids = accounts.map(a => String(a._id));
+    await setUiState(ctx.from.id, 'group_flow', {
+      step: 'add_targets',
+      accountIds: ids,
+      type: 'group_add',
+      addTargetKeys: []
+    });
+    await showGroupAddTargets(ctx, config);
+  });
+
+  bot.action('group_saved_list', async ctx => {
+    await ctx.answerCbQuery();
+    await showSavedGroupList(ctx);
   });
 
   bot.action('group_add_accounts_done', async ctx => {
@@ -653,17 +676,46 @@ export function registerCampaignV2Handlers(bot, config) {
   });
 
   bot.action('group_add_done', async ctx => {
-    await ctx.answerCbQuery('Added');
+    await ctx.answerCbQuery('Saving...');
     const state = await getUiState(ctx.from.id, 'group_flow');
     const selected = [...new Set((state?.data?.addTargetKeys || []).map(String))];
     if (!selected.length) return edit(ctx, '❌ Select at least one writable group/channel first.');
+    let saved = 0;
+    for (const key of selected) {
+      const [accountId, ...rest] = key.split(':');
+      const telegramGroupId = rest.join(':');
+      const result = await ManagedGroup.updateOne(
+        { ownerId: ctx.from.id, accountId, telegramGroupId, canPost: true },
+        { $set: { saved: true } }
+      );
+      saved += result.modifiedCount || 0;
+    }
     await clearUiState(ctx.from.id, 'group_flow');
-    await edit(
-      ctx,
-      '✅ <b>Added ' + selected.length + ' group/channel target(s)</b>\\n\\n' +
-        'They are now available in <b>Group Message → Select Groups</b>.',
-      simpleBackKeyboard('feature_group')
-    );
+    await edit(ctx, '✅ <b>Group list saved</b>\\n\\nSaved: ' + saved + ' group(s).', Markup.inlineKeyboard([
+      [Markup.button.callback('📋 Open Saved Group List', 'group_saved_list')],
+      [Markup.button.callback('⬅️ Back', 'feature_group')]
+    ]));
+  });
+
+  async function showSavedGroupList(ctx) {
+    const rows = await ManagedGroup.find({ ownerId: ctx.from.id, saved: true, canPost: true }).sort({ name: 1 }).limit(200).lean();
+    if (!rows.length) return edit(ctx, '📋 <b>SAVED GROUP LIST</b>\\n\\nNo saved groups yet.', Markup.inlineKeyboard([
+      [Markup.button.callback('➕ Select Group', 'group_add_select')],
+      [Markup.button.callback('⬅️ Back', 'group_add')]
+    ]));
+    const buttons = rows.slice(0, 80).map(r => {
+      const kind = r.type === 'channel' ? '📢' : '👥';
+      return [Markup.button.callback('🗑️ ' + kind + ' ' + safeTelegramText(r.name || r.telegramGroupId).slice(0, 28), 'group_saved_delete:' + r._id)];
+    });
+    buttons.push([Markup.button.callback('➕ Add More Groups', 'group_add_select')]);
+    buttons.push([Markup.button.callback('⬅️ Back', 'group_add')]);
+    await edit(ctx, '📋 <b>SAVED GROUP LIST</b>\\n\\nSaved: ' + rows.length + '\\n\\nTap 🗑️ on a group to remove it from the saved list.', Markup.inlineKeyboard(buttons));
+  }
+
+  bot.action(/^group_saved_delete:(.+)$/, async ctx => {
+    await ctx.answerCbQuery('Removed from saved list');
+    await ManagedGroup.updateOne({ _id: ctx.match[1], ownerId: ctx.from.id }, { $set: { saved: false } });
+    await showSavedGroupList(ctx);
   });
 
   bot.action('group_add_refresh', async ctx => {
@@ -707,9 +759,9 @@ export function registerCampaignV2Handlers(bot, config) {
     await edit(ctx, '🔄 <b>GROUP REFRESH COMPLETE</b>\\n\\nSynchronized groups: ' + total, simpleBackKeyboard('feature_group'));
   });
 
-  bot.action('group_select', async ctx => { await ctx.answerCbQuery(); await showAccountPicker(ctx, 'group'); });
-  bot.action('group_new', async ctx => { await ctx.answerCbQuery(); await showAccountPicker(ctx, 'group'); });
-  bot.action('group_autostart', async ctx => { await ctx.answerCbQuery(); await showAccountPicker(ctx, 'group_schedule'); });
+  bot.action('group_select', async ctx => { await ctx.answerCbQuery(); await showAccountPicker(ctx, 'group', config); });
+  bot.action('group_new', async ctx => { await ctx.answerCbQuery(); await showAccountPicker(ctx, 'group', config); });
+  bot.action('group_autostart', async ctx => { await ctx.answerCbQuery(); await showAccountPicker(ctx, 'group_schedule', config); });
   bot.action('group_history', async ctx => {
     await ctx.answerCbQuery();
     const rows = await BusinessCampaign.find({ ownerId: ctx.from.id, type: 'group' }).sort({ createdAt: -1 }).limit(15).lean();
