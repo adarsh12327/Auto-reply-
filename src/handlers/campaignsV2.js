@@ -241,7 +241,7 @@ async function showGroupTargets(ctx) {
       targetKeys: [],
       type: 'group'
     });
-    return edit(ctx, '🔎 <b>No saved groups found.</b>\n\nFirst open Group List → Select Group and save the groups you want to use.', Markup.inlineKeyboard([[Markup.button.callback('📋 Group List', 'group_add')],[Markup.button.callback('⬅️ Back', 'feature_group')]]), { parse_mode: 'HTML' });
+    return edit(ctx, '🔎 <b>No saved groups found.</b>\n\nFirst open Group List → Select Group and save the groups you want to use.', Markup.inlineKeyboard([[Markup.button.callback('📋 Group List', 'group_list_direct')],[Markup.button.callback('⬅️ Back', 'feature_group')]]), { parse_mode: 'HTML' });
   }
   await setUiState(ctx.from.id, 'group_flow', {
     ...(state?.data || {}),
@@ -566,6 +566,24 @@ export function registerCampaignV2Handlers(bot, config) {
       return edit(ctx, '❌ No connected Telegram account. Add an account first.', simpleBackKeyboard('feature_group'));
     }
 
+    const ids = accounts.map(a => String(a._id));
+    await setUiState(ctx.from.id, 'group_flow', {
+      step: 'add_targets',
+      accountIds: ids,
+      type: 'group_add',
+      addTargetKeys: []
+    });
+    await showGroupAddTargets(ctx, config);
+  });
+
+  bot.action('group_list_direct', async ctx => {
+    await ctx.answerCbQuery();
+    await clearUiState(ctx.from.id, 'dm_flow');
+    await clearUiState(ctx.from.id, 'autoreply_flow');
+    const accounts = await Account.find({ ownerId: ctx.from.id, status: 'connected' }).select('_id').lean();
+    if (!accounts.length) {
+      return edit(ctx, '❌ No connected Telegram account. Add an account first.', simpleBackKeyboard('feature_group'));
+    }
     const ids = accounts.map(a => String(a._id));
     await setUiState(ctx.from.id, 'group_flow', {
       step: 'add_targets',
