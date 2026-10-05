@@ -210,9 +210,18 @@ export async function canPost(client, target) {
     );
 
     const participant = permissions.participant;
+
+    // Supergroups allow normal members to post unless this specific
+    // account is restricted/banned from sending messages. Only broadcast
+    // channels require admin post_messages permission.
+    if (entity.megagroup) {
+      if (participant?.bannedRights?.sendMessages) return false;
+      return !participant?.left;
+    }
+
     return Boolean(
       participant?.adminRights?.postMessages ||
-      participant?.adminRights?.postStories
+      participant?.adminRights?.creator
     );
   } catch {
     return false;
