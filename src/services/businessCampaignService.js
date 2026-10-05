@@ -115,17 +115,18 @@ export async function processCampaignBatch(campaignId, encryptionKey, batchSize 
         const group = await ManagedGroup.findOne({
           ownerId: campaign.ownerId,
           accountId: account._id,
-          telegramGroupId: item.targetId,
-          canPost: true
+          telegramGroupId: item.targetId
         }).select('type accessHash username').lean();
 
         if (!group) {
           await CampaignRecipient.updateOne(
             { _id: item._id, status: 'pending' },
-            { $set: { status: 'skipped', lastError: 'Group is no longer writable or has not been refreshed' }, $inc: { attempts: 1 } }
+            { $set: { status: 'failed', lastError: 'Group is no longer available or has not been refreshed' }, $inc: { attempts: 1 } }
           );
-          await BusinessCampaign.updateOne({ _id: campaign._id }, { $inc: { 'stats.skipped': 1 } });
+          await BusinessCampaign.updateOne({ _id: campaign._id }, { $inc: { 'stats.failed': 1 } });
         } else {
+          // Do not pre-filter by cached canPost. Attempt the real Telegram send
+          // for every selected chat so the user sees the actual delivery result.
           await sendGroupMessage(client, item.targetId, campaign.message, group.type, group.accessHash || '', group.username || '');
           await CampaignRecipient.updateOne({ _id: item._id, status: 'pending' }, { $set: { status: 'sent', sentAt: new Date() }, $inc: { attempts: 1 } });
           await BusinessCampaign.updateOne({ _id: campaign._id }, { $inc: { 'stats.sent': 1 } });
