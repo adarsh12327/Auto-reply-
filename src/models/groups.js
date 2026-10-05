@@ -11,7 +11,8 @@ const schema = new mongoose.Schema({
   membershipStatus: { type: String, default: 'member' },
   isAdmin: { type: Boolean, default: false },
   canPost: { type: Boolean, default: false },
-  lastSyncedAt: Date
+  lastSyncedAt: Date,
+  saved: { type: Boolean, default: false, index: true }
 }, { timestamps: true });
 
 schema.index({ ownerId: 1, accountId: 1, telegramGroupId: 1 }, { unique: true });
