@@ -333,8 +333,9 @@ export function registerCampaignV2Handlers(bot, config) {
     await clearUiState(ctx.from.id, 'group_flow');
     await edit(ctx, '➕ <b>GROUP MESSAGE</b>\\n\\nChoose what you want to do:', Markup.inlineKeyboard([
       [Markup.button.callback('1. Select Group', 'group_add_select')],
-      [Markup.button.callback('2. Save Group List', 'group_saved_list')],
-      [Markup.button.callback('3. Back', 'main_menu')]
+      [Markup.button.callback('2. Send Message', 'group_send_message')],
+      [Markup.button.callback('3. Save Group List', 'group_saved_list')],
+      [Markup.button.callback('4. Back', 'main_menu')]
     ]));
   });
 
@@ -633,6 +634,13 @@ export function registerCampaignV2Handlers(bot, config) {
       addTargetKeys: current?.data?.addTargetKeys || []
     });
     await showGroupAddTargets(ctx, config);
+  });
+
+  bot.action('group_send_message', async ctx => {
+    await ctx.answerCbQuery();
+    await clearUiState(ctx.from.id, 'dm_flow');
+    await clearUiState(ctx.from.id, 'autoreply_flow');
+    await showAccountPicker(ctx, 'group', config);
   });
 
   bot.action('group_saved_list', async ctx => {
