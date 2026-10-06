@@ -18,15 +18,23 @@ export async function createUserClient({ account, encryptionKey, onLoginCode }) 
   const id = key(account._id);
   const existing = clients.get(id);
 
-  if (existing && existing.connected) return existing;
-
   if (existing) {
+    // Verify the cached GramJS socket with a real RPC. Vercel can keep a
+    // stale client object after an invocation/idle period.
     try {
-      await existing.connect();
+      if (!existing.connected) await existing.connect();
+      await existing.getMe();
       return existing;
     } catch {
-      clients.delete(id);
-      autoReplyAttached.delete(id);
+      try { await existing.disconnect(); } catch {}
+      try {
+        await existing.connect();
+        await existing.getMe();
+        return existing;
+      } catch {
+        clients.delete(id);
+        autoReplyAttached.delete(id);
+      }
     }
   }
 
