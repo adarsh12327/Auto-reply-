@@ -306,8 +306,10 @@ async function resolveCampaignGroup(client, target, type = '', accessHash = '', 
       const entity = dialog.entity;
       if (!entity) continue;
       const isBasicGroup = entity instanceof Api.Chat;
-      const isSupergroup = entity instanceof Api.Channel && Boolean(entity.megagroup);
-      if (!isBasicGroup && !isSupergroup) continue;
+      const isChannelOrSupergroup = entity instanceof Api.Channel;
+      if (!isBasicGroup && !isChannelOrSupergroup) continue;
+      // Keep broadcast channels too. Delivery permission is decided by the
+      // real Telegram send attempt, not by the picker/cache.
       groupMap.set(String(entity.id), entity);
       if (entity.username) groupMap.set(`@${String(entity.username).toLowerCase()}`, entity);
     }
