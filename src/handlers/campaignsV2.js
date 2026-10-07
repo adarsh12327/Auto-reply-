@@ -61,7 +61,7 @@ async function showAccountPicker(ctx, type, config) {
       type: flowType,
       scheduled: type === 'group_schedule'
     });
-    if (flowType === 'dm') return showDmTargets(ctx);
+    if (flowType === 'dm') return showDmTargets(ctx, config);
     if (flowType === 'group_add') return showGroupAddTargets(ctx, config);
     return showGroupTargets(ctx);
   }
@@ -165,7 +165,7 @@ async function showGroupAddTargets(ctx, config) {
   );
 }
 
-async function showDmTargets(ctx) {
+async function showDmTargets(ctx, config) {
   const ids = await selectedAccounts(ctx.from.id, 'dm_flow');
   if (!ids.length) return edit(ctx, '❌ Select at least one account.', simpleBackKeyboard('feature_dm'));
 
