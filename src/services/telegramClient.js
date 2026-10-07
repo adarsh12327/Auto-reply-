@@ -19,21 +19,24 @@ export async function createUserClient({ account, encryptionKey, onLoginCode }) 
   const existing = clients.get(id);
 
   if (existing) {
-    // Verify the cached GramJS socket with a real RPC. Vercel can keep a
-    // stale client object after an invocation/idle period.
+    // Vercel can retain a warm function while the underlying MTProto socket
+    // has already died. Never return a client only because the object exists:
+    // verify it with a real RPC first.
     try {
       if (!existing.connected) await existing.connect();
       await existing.getMe();
       return existing;
-    } catch {
+    } catch (firstError) {
       try { await existing.disconnect(); } catch {}
-      try {
-        await existing.connect();
-        await existing.getMe();
-        return existing;
-      } catch {
-        clients.delete(id);
-        autoReplyAttached.delete(id);
+      clients.delete(id);
+      autoReplyAttached.delete(id);
+
+      // AUTH_KEY_DUPLICATED is transient when another warm Vercel invocation
+      // is releasing the same Telegram session. Give that socket time to
+      // disappear before creating the replacement connection.
+      const msg = String(firstError?.message || '');
+      if (msg.includes('AUTH_KEY_DUPLICATED')) {
+        await new Promise(resolve => setTimeout(resolve, 1800));
       }
     }
   }
@@ -71,7 +74,26 @@ export async function createUserClient({ account, encryptionKey, onLoginCode }) 
       onError: err => logger.error('Telegram login error', { error: err?.message })
     });
   } else {
-    await client.connect();
+    let connected = false;
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        await client.connect();
+        connected = true;
+        break;
+      } catch (error) {
+        lastError = error;
+        try { await client.disconnect(); } catch {}
+        const message = String(error?.message || '');
+        if (!message.includes('AUTH_KEY_DUPLICATED') || attempt === 3) break;
+        await new Promise(resolve => setTimeout(resolve, 1800 * attempt));
+      }
+    }
+
+    if (!connected) {
+      throw lastError || new Error('Unable to connect Telegram account');
+    }
 
     const authorized = await client.checkAuthorization();
     if (!authorized) {
