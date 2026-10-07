@@ -4,7 +4,6 @@ import { BusinessCampaign } from '../src/models/campaigns.js';
 import { processCampaignBatch } from '../src/services/businessCampaignService.js';
 import { pollAutoReplies } from '../src/services/autoReplyService.js';
 import { processAdBatch } from '../src/services/adDeliveryService.js';
-import { ensureInstantAutoReplyWorker } from '../src/services/autoReplySandbox.js';
 
 let ready;
 
@@ -35,26 +34,21 @@ export default async function handler(req, res) {
         { status: 'scheduled', scheduledAt: { $lte: now } }
       ]
     }).sort({ updatedAt: 1 }).limit(1).select('_id').lean();
+
     const campaignResults = [];
 
     for (const campaign of campaigns) {
-      campaignResults.push(await processCampaignBatch(campaign._id, config.encryptionKey, 8));
+      campaignResults.push(
+        await processCampaignBatch(campaign._id, config.encryptionKey, 8)
+      );
     }
 
-    let instantWorker = false;
-    try {
-      await ensureInstantAutoReplyWorker({
-        mongoUri: config.mongoUri,
-        encryptionKeyHex: config.encryptionKey.toString('hex')
-      });
-      instantWorker = true;
-    } catch (workerError) {
-      console.warn('Instant Auto Reply worker start failed; using polling fallback:', workerError?.message);
-    }
-
-    const autoReplyResults = instantWorker
-      ? []
-      : await pollAutoReplies(config.encryptionKey, 10);
+    // Vercel Functions are short-lived/stateless. Do not try to start or
+    // maintain a long-running MTProto worker from a cron invocation.
+    // On Hobby, Vercel Sandbox is unavailable after the usage limit and
+    // repeatedly attempting to start it only adds noise and latency.
+    // Auto-reply therefore uses the durable MongoDB-backed polling path.
+    const autoReplyResults = await pollAutoReplies(config.encryptionKey, 10);
     const adResults = await processAdBatch(config.encryptionKey, 5);
 
     res.status(200).json({
