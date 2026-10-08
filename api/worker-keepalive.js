@@ -1,5 +1,6 @@
 import { loadConfig } from '../src/config.js';
-import { ensureInstantAutoReplyWorker } from '../src/services/autoReplySandbox.js';
+import { connectDb } from '../src/db.js';
+import { pollAutoReplies } from '../src/services/autoReplyService.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET' && req.method !== 'POST') {
