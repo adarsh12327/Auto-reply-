@@ -35,21 +35,6 @@ export default async function handler(req, res) {
     const handlerStartedAt = Date.now();
     await bot.handleUpdate(req.body);
 
-    // Keep the dedicated MTProto Auto Reply worker alive independently of
-    // Vercel Cron. Hobby Cron can only run daily, while the sandbox worker
-    // expires after its maximum lifetime. Every real bot update now also
-    // repairs/restarts the worker when needed without blocking Telegram.
-    waitUntil((async () => {
-      try {
-        const config = loadConfig();
-        await ensureInstantAutoReplyWorker({
-          mongoUri: config.mongoUri,
-          encryptionKeyHex: config.encryptionKey.toString('hex')
-        });
-      } catch (error) {
-        console.warn('Auto Reply worker keepalive failed:', error?.message);
-      }
-    })());
 
     console.info('WEBHOOK_TIMING', JSON.stringify({ stage: 'handled', ms: Date.now() - handlerStartedAt, totalMs: Date.now() - startedAt }));
     res.status(200).json({ ok: true });
