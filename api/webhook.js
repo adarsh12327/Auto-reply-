@@ -1,8 +1,6 @@
 import { createBot } from '../src/bot/bot.js';
 import { loadConfig } from '../src/config.js';
 import { connectDb } from '../src/db.js';
-import { waitUntil } from '@vercel/functions';
-import { ensureInstantAutoReplyWorker } from '../src/services/autoReplySandbox.js';
 
 let readyPromise;
 
