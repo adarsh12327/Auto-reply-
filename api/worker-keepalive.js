@@ -10,14 +10,13 @@ export default async function handler(req, res) {
 
   try {
     const config = loadConfig();
-    const result = await ensureInstantAutoReplyWorker({
-      mongoUri: config.mongoUri,
-      encryptionKeyHex: config.encryptionKey.toString('hex')
-    });
+    await connectDb(config.mongoUri);
+    const results = await pollAutoReplies(config.encryptionKey, 10);
 
     res.status(200).json({
       ok: true,
-      worker: result?.status || 'running',
+      worker: 'polling',
+      processedAccounts: results.length,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
